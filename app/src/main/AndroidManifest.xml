@@ -14,8 +14,10 @@
 
 
     <application
+        android:name=".MyApplication"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
         android:allowBackup="true"
-        android:label="MyPrinterApp"
         android:theme="@style/Theme.MyPrinterApp">
         <activity android:name=".MainActivity"
             android:exported="true">

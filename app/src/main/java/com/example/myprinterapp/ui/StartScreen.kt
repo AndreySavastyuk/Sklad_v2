@@ -192,7 +192,8 @@ fun StartScreenPreview_CustomLogo() {
             onPickClick = {},
             onJournalClick = {},
             onSettingsClick = {},
-            logoIcon = Icons.Filled.Inventory // Пример с другой иконкой
+            logoIcon = Icons.Filled.Inventory
         )
+
     }
 }

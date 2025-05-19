@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.navigation.NavController
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -30,9 +31,10 @@ import com.google.mlkit.vision.common.InputImage
 /**
  * Экран для сканирования QR через камеру с помощью CameraX и ML Kit.
  */
+
 @Composable
 fun CameraScreen(
-    onBarcodeDetected: (String) -> Unit,
+    onCodeScanned: (String) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -76,7 +78,7 @@ fun CameraScreen(
                         .also { analysis ->
                             analysis.setAnalyzer(ContextCompat.getMainExecutor(context)) { imageProxy: ImageProxy ->
                                 processImageProxy(scanner, imageProxy) { code ->
-                                    onBarcodeDetected(code)
+                                    onCodeScanned(code)
                                 }
                             }
                         }

@@ -88,6 +88,9 @@ class PickViewModel : ViewModel() {
         println("Debug: Prepared item for scanning - PartNo: ${detail.partNumber}, ID: ${detail.id}")
     }
 
+    private val _lastScannedCode = MutableStateFlow<String?>(null)
+    val lastScannedCode: StateFlow<String?> = _lastScannedCode
+
     fun handleScannedBarcodeForItem(scannedBarcode: String) {
         val targetItem = _itemAwaitingScan.value
         if (targetItem != null && targetItem.partNumber == scannedBarcode) {

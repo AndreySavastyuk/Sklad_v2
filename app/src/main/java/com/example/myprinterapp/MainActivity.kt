@@ -3,127 +3,124 @@ package com.example.myprinterapp
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.viewModels
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import com.example.myprinterapp.printer.PrinterService
-import com.example.myprinterapp.ui.AcceptScreen
-import com.example.myprinterapp.ui.CameraScreen
-import com.example.myprinterapp.ui.StartScreen
-import com.example.myprinterapp.ui.pick.PickTasksScreen
-import com.example.myprinterapp.ui.pick.PickDetailsScreen
-import com.example.myprinterapp.ui.pick.PickViewModel
+import androidx.navigation.NavOptions
+import androidx.navigation.compose.*
+import com.example.myprinterapp.ui.*
+import com.example.myprinterapp.ui.pick.*
+import com.example.myprinterapp.ui.theme.MyPrinterAppTheme
+import com.example.myprinterapp.viewmodel.AcceptViewModel
 
 class MainActivity : ComponentActivity() {
+
+    /** Один Accept-VM на всё Activity, чтобы CameraScreen мог изменять его state */
+    private val acceptVm: AcceptViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            // -- состояния для экрана Приемка
-            var acceptScannedValue by rememberSaveable { mutableStateOf<String?>(null) }
-            var quantity           by rememberSaveable { mutableStateOf("") }
-            var cellCode           by rememberSaveable { mutableStateOf("") }
+            MyPrinterAppTheme {
+                val navController     = rememberNavController()
 
-            val pickVm: PickViewModel = viewModel()
-            val printerService = remember { PrinterService(this) }
-            val navController = rememberNavController()
+                /* ---------- Навигация ---------- */
+                NavHost(navController, startDestination = "start") {
 
-            NavHost(navController, startDestination = "start_screen") {
-                // === стартовое меню
-                composable("start_screen") {
-                    StartScreen(
-                        onReceiveClick  = { navController.navigate("accept") },
-                        onPickClick     = { navController.navigate("pick_tasks") },
-                        onJournalClick  = { /* TODO */ },
-                        onSettingsClick = { /* TODO */ }
-                    )
-                }
+                    /* --- стартовое меню --- */
+                    composable("start") {
+                        StartScreen(
+                            onReceiveClick   = {
+                                navController.navigate("accept")       // к приёмке
+                            },
+                            onPickClick      = {
+                                navController.navigate("pick_tasks")   // список заданий
+                            },
+                            onJournalClick   = {},
+                            onSettingsClick  = {}
+                        )
+                    }
 
-                // === Приемка
-                composable("accept") {
-                    AcceptScreen(
-                        scannedValue      = acceptScannedValue,
-                        quantity          = quantity,
-                        cellCode          = cellCode,
-                        onScanWithScanner = { /* TODO: Bluetooth */ },
-                        onScanWithCamera  = { navController.navigate("camera_accept") },
-                        onQuantityChange  = { quantity = it },
-                        onCellCodeChange  = { cellCode = it },
-                        onPrintLabel      = {
-                            if (acceptScannedValue != null && quantity.isNotBlank() && cellCode.isNotBlank()) {
-                                printerService.printFromScanned(
-                                    qrData   = acceptScannedValue!!,
-                                    quantity = quantity,
-                                    cellCode = cellCode
+                    /* --- Приёмка --- */
+                    composable("accept") {
+                        /* подписываемся на VM */
+                        val scanned by acceptVm.scannedValue.collectAsState()
+                        val qty     by acceptVm.quantity.collectAsState()
+                        val cell    by acceptVm.cellCode.collectAsState()
+
+                        AcceptScreen(
+                            scannedValue       = scanned,
+                            quantity           = qty,
+                            cellCode           = cell,
+                            onScanWithScanner  = {/* TODO */},
+                            onScanWithCamera   = {
+                                /* Переходим к камере, но оставляем Accept в back-stack */
+                                navController.navigate("camera")
+                            },
+                            onQuantityChange   = acceptVm::onQuantityChange,
+                            onCellCodeChange   = acceptVm::onCellCodeChange,
+                            onPrintLabel       = acceptVm::onPrintLabel,
+                            onResetInputFields = acceptVm::resetInputFields,
+                            onBack             = { navController.popBackStack() }
+                        )
+                    }
+
+                    /* --- Камера --- */
+                    composable("camera") {
+                        CameraScreen(
+                            onCodeScanned = { code ->
+                                acceptVm.onBarcodeDetected(code)    // сохраняем в VM
+                                /* Явно возвращаемся к accept
+                                   (если вдруг пользователь пришёл НЕ из accept,
+                                   он всё-равно попадёт туда)                   */
+                                navController.navigate(
+                                    "accept",
+                                    NavOptions.Builder()
+                                        .setPopUpTo("accept", /*inclusive*/false)
+                                        .setLaunchSingleTop(true)   // не плодим дублей
+                                        .build()
                                 )
-                                // после печати можно сбросить поля
-                                acceptScannedValue = null
-                                quantity = ""
-                                cellCode = ""
-                            }
-                        },
-                        onBack = { navController.popBackStack() },
-                        onResetInputFields = {
-                            acceptScannedValue = null
-                            quantity = ""
-                            cellCode = ""
-                        }
-                    )
-                }
+                            },
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
 
-                // Камера для экрана Приемка
-                composable("camera_accept") {
-                    CameraScreen(
-                        onBarcodeDetected = { code ->
-                            acceptScannedValue = code
-                            navController.popBackStack()
-                        },
-                        onBack = { navController.popBackStack() }
-                    )
-                }
+                    /* --- Список заданий («Комплектация») --- */
+                    composable("pick_tasks") {
+                        val pickVm: PickViewModel = viewModel()
+                        val tasks = pickVm.tasks.collectAsState().value
 
-                // === Список заданий на комплектацию
-                composable("pick_tasks") {
-                    val tasks by pickVm.tasks.collectAsState()
-                    PickTasksScreen(
-                        tasks      = tasks,
-                        onOpenTask = { taskId ->
-                            pickVm.openTask(taskId)
-                            navController.navigate("pick_details")
-                        },
-                        onBack     = { navController.popBackStack() }
-                    )
-                }
+                        PickTasksScreen(
+                            tasks      = tasks,
+                            onOpenTask = { id ->
+                                pickVm.openTask(id)
+                                navController.navigate("pick_details")
+                            },
+                            onBack     = { navController.popBackStack() }
+                        )
+                    }
 
-                // === Детали конкретного задания ===
-                composable("pick_details") {
-                    val vm = hiltViewModel<PickViewModel>()
-                    PickDetailsScreen(
-                        task              = vm.currentTask.collectAsState().value,
-                        showQtyDialogFor  = vm.showQtyDialogFor.collectAsState().value,
-                        onScanAnyCode     = { code -> vm.handleScannedBarcodeForItem(code) },
-                        onShowQtyDialog   = { detail -> vm.requestShowQtyDialog(detail) },
-                        onSubmitQty       = { id, qty -> vm.submitPickedQuantity(id, qty) },
-                        onDismissQtyDialog= { vm.dismissQtyDialog() },
-                        onBack            = { navController.popBackStack() }
-                    )
-                }
+                    /* --- Детали конкретного задания --- */
+                    composable("pick_details") {
+                        val pickVm: PickViewModel = viewModel()
+                        val task       by pickVm.currentTask.collectAsState()
+                        val dialogFor  by pickVm.showQtyDialogFor.collectAsState()
+                        val lastCode   by pickVm.lastScannedCode.collectAsState()
 
-                // Камера для режима Комплектации
-                composable("camera_pick") {
-                    CameraScreen(
-                        onBarcodeDetected = { code ->
-                            pickVm.handleScannedBarcodeForItem(code)
-                            navController.popBackStack()
-                        },
-                        onBack = { navController.popBackStack() }
-                    )
+                        PickDetailsScreen(
+                            task               = task,
+                            showQtyDialogFor   = dialogFor,
+                            onShowQtyDialog    = pickVm::requestShowQtyDialog,
+                            onDismissQtyDialog = pickVm::dismissQtyDialog,
+                            onSubmitQty        = pickVm::submitPickedQuantity,
+                            onScanAnyCode      = pickVm::handleScannedBarcodeForItem,
+                            onSubmitPickedQty  = pickVm::submitPickedQuantity, // alias
+                            scannedQr          = lastCode,
+                            onBack             = { navController.popBackStack() }
+                        )
+                    }
                 }
-
-                // TODO: journal, settings и т.д.
             }
         }
     }

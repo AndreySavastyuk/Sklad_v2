@@ -29,7 +29,9 @@ fun PickDetailsScreen(
     onDismissQtyDialog: () -> Unit,
     onSubmitQty: (detailId: Int, quantity: Int) -> Unit,
     onScanAnyCode: (String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onSubmitPickedQty: (detailId: Int, quantity: Int) -> Unit,
+    scannedQr: String?
 ) {
     Scaffold(
         topBar = {
@@ -163,6 +165,8 @@ fun PickDetailsScreenPreview() {
         onDismissQtyDialog = {},
         onSubmitQty = { _, _ -> },
         onScanAnyCode = {},
-        onBack = {}
+        onBack = {},
+        onSubmitPickedQty = { _, _ -> },
+        scannedQr = null
     )
 }
