@@ -4,6 +4,7 @@ plugins {
     id 'kotlin-kapt'
     id 'com.google.dagger.hilt.android'
     id 'kotlin-parcelize'
+    id 'com.google.devtools.ksp' // Добавляем KSP плагин без указания версии
 }
 
 android {
@@ -17,14 +18,13 @@ android {
         versionCode 1
         versionName "1.0"
 
-        javaCompileOptions {
-            annotationProcessorOptions {
-                arguments += [
-                        "room.schemaLocation": "$projectDir/schemas".toString(),
-                        "room.incremental": "true",
-                        "room.expandProjection": "true"
-                ]
-            }
+        // Настройки для Room через KSP
+        ksp {
+            arg("room.schemaLocation", "NONE")
+            arg("room.incremental", "false")
+            arg("room.expandProjection", "true")
+            arg("room.verifySchema", "false")
+            arg("room.disableVerification", "true")
         }
     }
 
@@ -57,7 +57,7 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion "1.5.14"  // обновлено
+        kotlinCompilerExtensionVersion "1.5.14"
     }
 
     ndkVersion "25.1.8937393"
@@ -94,9 +94,12 @@ dependencies {
     kapt "com.google.dagger:hilt-compiler:$hilt_version"
 
     // Room - используем версию из корневого build.gradle
-    implementation "androidx.room:room-runtime:$room_version"
-    implementation "androidx.room:room-ktx:$room_version"
-    kapt "androidx.room:room-compiler:$room_version"
+    implementation "androidx.room:room-runtime:2.5.2"
+    implementation "androidx.room:room-ktx:2.5.2"
+    ksp "androidx.room:room-compiler:2.5.2" // Используем KSP
+
+    // DataStore для настроек
+    implementation "androidx.datastore:datastore-preferences:1.0.0"
 
     // CameraX - единая версия для всех компонентов
     def camerax_version = "1.4.2"
@@ -109,26 +112,39 @@ dependencies {
     implementation "com.google.mlkit:barcode-scanning:17.2.0"
     implementation "com.google.mlkit:text-recognition:16.0.1"
 
+    // ZXing для генерации QR-кодов
+    implementation 'com.google.zxing:core:3.5.3'
+
     // Kotlin
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+
+    // Корутины
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+
+    // Lifecycle
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.7.0"
 
     // Локальная библиотека принтера
     implementation(name: 'printer-lib-3.2.0', ext: 'aar')
 
     // Debug tools
     debugImplementation "androidx.compose.ui:ui-tooling"
+    debugImplementation "androidx.compose.ui:ui-test-manifest"
+
+    // Testing
+    testImplementation "junit:junit:4.13.2"
+    androidTestImplementation "androidx.test.ext:junit:1.1.5"
+    androidTestImplementation "androidx.test.espresso:espresso-core:3.5.1"
+    androidTestImplementation "androidx.compose.ui:ui-test-junit4"
 }
 
+// Оставляем только настройки KAPT для Hilt, удаляем настройки для Room
 kapt {
     correctErrorTypes true
-    arguments {
-        arg("room.schemaLocation", "$projectDir/schemas")
-        arg("room.incremental", "true")
-        arg("room.verifySchema", "false")
-        arg("room.expandProjection", "true")
-    }
     javacOptions {
         option("-Xmaxerrs", 1000)
     }
 }
+

@@ -9,6 +9,8 @@ pluginManagement {
         }
         mavenCentral()
         gradlePluginPortal()
+        // Добавляем явную поддержку для плагина KSP
+        maven { url "https://plugins.gradle.org/m2/" }
     }
 }
 

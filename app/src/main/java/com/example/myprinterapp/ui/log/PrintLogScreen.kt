@@ -10,12 +10,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import java.time.format.DateTimeFormatter
 
 @OptIn (ExperimentalMaterial3Api::class)
 @Composable
 fun PrintLogScreen(
-    vm: PrintLogViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    vm: PrintLogViewModel = hiltViewModel(),
     onBack: () -> Unit
 ) {
     val list by vm.entries.collectAsState()

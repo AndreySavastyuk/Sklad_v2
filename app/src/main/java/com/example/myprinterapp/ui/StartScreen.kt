@@ -100,9 +100,9 @@ fun StartScreen(
             StartScreenButton(
                 text = "Журнал операций",
                 onClick = onJournalClick,
-                modifier = Modifier.fillMaxWidth(), //modifier = buttonModifier,
+                modifier = buttonModifier,
                 border = buttonBorder,
-                enabled = false // Пример неактивной кнопки
+                enabled = true // Изменено с false
             )
 
             Spacer(modifier = Modifier.height(20.dp))

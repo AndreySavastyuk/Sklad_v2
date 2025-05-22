@@ -1,6 +1,8 @@
 package com.example.myprinterapp.ui
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -28,7 +30,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.myprinterapp.printer.ConnectionState
 import com.example.myprinterapp.ui.theme.WarmYellow
+import com.example.myprinterapp.viewmodel.AcceptUiState
+import kotlinx.coroutines.delay
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.remember
 
 // Утилита для затемнения цвета (простой вариант)
 private fun Color.darker(factor: Float = 0.8f): Color {
@@ -65,19 +74,35 @@ fun AcceptScreen(
     scannedValue: String?,
     quantity: String,
     cellCode: String,
+    uiState: AcceptUiState,
+    printerConnectionState: ConnectionState,
     onScanWithScanner: () -> Unit,
     onScanWithCamera: () -> Unit,
     onQuantityChange: (String) -> Unit,
     onCellCodeChange: (String) -> Unit,
     onPrintLabel: () -> Unit,
     onResetInputFields: () -> Unit,
-    onBack: () -> Unit
+    onClearMessage: () -> Unit,
+    onBack: () -> Unit,
+    onNavigateToSettings: () -> Unit
 ) {
     val focusManager = LocalFocusManager.current
     val parsedData = remember(scannedValue) { parseFixedQrValue(scannedValue) }
 
     val borderColor = MaterialTheme.colorScheme.outline.darker(0.8f)
     val buttonBorder = BorderStroke(1.dp, borderColor)
+
+
+    // Автоматически скрываем сообщения через 3 секунды
+    LaunchedEffect(uiState) {
+        when (uiState) {
+            is AcceptUiState.Success, is AcceptUiState.Error -> {
+                delay(3000)
+                onClearMessage()
+            }
+            else -> {}
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -87,192 +112,335 @@ fun AcceptScreen(
                     IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Filled.ArrowBack, "Назад", modifier = Modifier.size(36.dp))
                     }
+                },
+                actions = {
+                    // Индикатор состояния принтера
+                    PrinterStatusIndicator(
+                        connectionState = printerConnectionState,
+                        onClick = onNavigateToSettings
+                    )
                 }
+            )
+        },
+        snackbarHost = {
+            SnackbarHost(
+                hostState = remember { SnackbarHostState() },
+                modifier = Modifier.padding(8.dp)
             )
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp), // Немного уменьшим для компактности
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("Выберите способ сканирования:", style = MaterialTheme.typography.titleLarge, fontSize = 22.sp)
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Выберите способ сканирования:", style = MaterialTheme.typography.titleLarge, fontSize = 22.sp)
 
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(
-                    onClick = onScanWithScanner,
-                    modifier = Modifier.weight(1f).height(100.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                    border = buttonBorder
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Filled.BluetoothSearching, "Сканер Bluetooth", modifier = Modifier.size(40.dp))
-                        Spacer(Modifier.height(8.dp))
-                        Text("Сканер BT", fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = onScanWithScanner,
+                        modifier = Modifier.weight(1f).height(100.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        contentPadding = PaddingValues(vertical = 12.dp),
+                        border = buttonBorder,
+                        enabled = uiState !is AcceptUiState.Printing
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Filled.BluetoothSearching, "Сканер Bluetooth", modifier = Modifier.size(40.dp))
+                            Spacer(Modifier.height(8.dp))
+                            Text("Сканер BT", fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                    Button(
+                        onClick = onScanWithCamera,
+                        modifier = Modifier.weight(1f).height(100.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = WarmYellow.darker(0.9f),
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        contentPadding = PaddingValues(vertical = 12.dp),
+                        border = buttonBorder,
+                        enabled = uiState !is AcceptUiState.Printing
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Filled.CameraAlt, "Камера", modifier = Modifier.size(40.dp))
+                            Spacer(Modifier.height(8.dp))
+                            Text("Камера", fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
                 }
+
+                OutlinedTextField(
+                    value = scannedValue ?: "QR не отсканирован",
+                    onValueChange = {},
+                    label = { Text("Содержимое QR-кода", fontSize = 18.sp) },
+                    leadingIcon = { Icon(Icons.Filled.QrCodeScanner, "QR-код", modifier = Modifier.size(32.dp)) },
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 18.sp, fontWeight = FontWeight.Medium),
+                    minLines = 1,
+                    maxLines = 2,
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        unfocusedBorderColor = borderColor,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LargeInputTextField(
+                        value = quantity,
+                        onValueChange = onQuantityChange,
+                        label = "Кол-во",
+                        icon = Icons.Filled.Numbers,
+                        labelFontSize = 25.sp,
+                        valueFontSize = 40.sp,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                        modifier = Modifier.weight(1f),
+                        borderColor = borderColor,
+                        labelTextAlign = TextAlign.Center,
+                        enabled = uiState !is AcceptUiState.Printing
+                    )
+                    LargeInputTextField(
+                        value = cellCode,
+                        onValueChange = { newRaw ->
+                            val new = newRaw.filter { it.isLetterOrDigit() }
+                            if (new.length <= 4) {
+                                onCellCodeChange(new.uppercase())
+                            }
+                        },
+                        label = "Ячейка хранения",
+                        icon = Icons.Filled.Inventory2,
+                        labelFontSize = 25.sp,
+                        valueFontSize = 35.sp,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Done,
+                            capitalization = KeyboardCapitalization.Characters
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                        modifier = Modifier.weight(1f),
+                        borderColor = borderColor,
+                        labelTextAlign = TextAlign.Center,
+                        enabled = uiState !is AcceptUiState.Printing
+                    )
+                }
+
                 Button(
-                    onClick = onScanWithCamera,
-                    modifier = Modifier.weight(1f).height(100.dp),
+                    onClick = {
+                        onResetInputFields()
+                        focusManager.clearFocus()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
                     shape = MaterialTheme.shapes.medium,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = WarmYellow.darker(0.9f),
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     ),
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                    border = buttonBorder
+                    border = buttonBorder,
+                    enabled = uiState !is AcceptUiState.Printing
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Filled.CameraAlt, "Камера", modifier = Modifier.size(40.dp))
-                        Spacer(Modifier.height(8.dp))
-                        Text("Камера", fontSize = 20.sp, fontWeight = FontWeight.Medium)
-                    }
+                    Icon(Icons.Filled.Clear, "Сброс", modifier = Modifier.size(30.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Сброс", fontSize = 18.sp)
                 }
-            }
 
-            OutlinedTextField(
-                value = scannedValue ?: "QR не отсканирован",
-                onValueChange = {},
-                label = { Text("Содержимое QR-кода", fontSize = 18.sp) },
-                leadingIcon = { Icon(Icons.Filled.QrCodeScanner, "QR-код", modifier = Modifier.size(32.dp)) },
-                enabled = false,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = LocalTextStyle.current.copy(fontSize = 18.sp, fontWeight = FontWeight.Medium),
-                minLines = 1,
-                maxLines = 2,
-                colors = TextFieldDefaults.outlinedTextFieldColors(
-                    unfocusedBorderColor = borderColor,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary
-                )
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically // Выравниваем по центру вертикали
-            ) {
-                LargeInputTextField(
-                    value = quantity,
-                    onValueChange = onQuantityChange,
-                    label = "Кол-во",
-                    icon = Icons.Filled.Numbers,
-                    labelFontSize = 25.sp, // Уменьшен шрифт label
-                    valueFontSize = 40.sp,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                    modifier = Modifier.weight(1f),
-                    borderColor = borderColor,
-                    labelTextAlign = TextAlign.Center // Выравнивание label по центру
-                )
-                LargeInputTextField(
-                    value = cellCode,
-                    onValueChange = { newRaw ->
-                        val new = newRaw.filter { it.isLetterOrDigit() } // Фильтруем пробелы и знаки
-                        if (new.length <= 4) {
-                            onCellCodeChange(new.uppercase()) // Приводим к верхнему регистру для единообразия
-                        }
-                    },
-                    label = "Ячейка хранения",
-                    icon = Icons.Filled.Inventory2,
-                    labelFontSize = 25.sp, // Уменьшен шрифт label
-                    valueFontSize = 35.sp, // Можно сделать чуть меньше для текста
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Text, // Обычная клавиатура
-                        imeAction = ImeAction.Done,
-                        capitalization = KeyboardCapitalization.Characters // Автоматически большие буквы
-                    ),
-                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                    modifier = Modifier.weight(1f),
-                    borderColor = borderColor,
-                    labelTextAlign = TextAlign.Center // Выравнивание label по центру
-                )
-            }
-
-            Button(
-                onClick = {
-                    onResetInputFields()
-                    focusManager.clearFocus()
-                },
-                modifier = Modifier.fillMaxWidth().height(60.dp),
-                shape = MaterialTheme.shapes.medium,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                ),
-                border = buttonBorder
-            ) {
-                Icon(Icons.Filled.Clear, "Сброс", modifier = Modifier.size(30.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Сброс", fontSize = 18.sp)
-            }
-
-            if (parsedData.isNotEmpty()) {
-                Text(
-                    "Детализация QR-кода:",
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp),
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 240.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(parsedData) { dataItem ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.darker(0.7f)),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                if (parsedData.isNotEmpty()) {
+                    Text(
+                        "Детализация QR-кода:",
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(parsedData) { dataItem ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.darker(0.7f)),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                             ) {
-                                Icon(
-                                    imageVector = dataItem.icon,
-                                    contentDescription = dataItem.key,
-                                    modifier = Modifier.size(28.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = dataItem.key,
-                                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 16.sp),
-                                        fontWeight = FontWeight.Bold
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = dataItem.icon,
+                                        contentDescription = dataItem.key,
+                                        modifier = Modifier.size(28.dp),
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
-                                    Text(
-                                        text = dataItem.value,
-                                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = dataItem.key,
+                                            style = MaterialTheme.typography.labelMedium.copy(fontSize = 16.sp),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = dataItem.value,
+                                            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.weight(1f, fill = parsedData.isEmpty()))
+
+                Button(
+                    onClick = onPrintLabel,
+                    enabled = scannedValue != null &&
+                            quantity.isNotBlank() &&
+                            cellCode.length > 0 &&
+                            cellCode.length <= 4 &&
+                            printerConnectionState == ConnectionState.CONNECTED &&
+                            uiState !is AcceptUiState.Printing,
+                    modifier = Modifier.fillMaxWidth().height(100.dp),
+                    shape = MaterialTheme.shapes.large,
+                    border = buttonBorder
+                ) {
+                    when (uiState) {
+                        is AcceptUiState.Printing -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(42.dp),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Text("Печать...", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        }
+                        else -> {
+                            Icon(Icons.Filled.Print, "Печать бирки", modifier = Modifier.size(42.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Text("Печать бирки", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.weight(1f, fill = parsedData.isEmpty()))
-
-            Button(
-                onClick = onPrintLabel,
-                enabled = scannedValue != null && quantity.isNotBlank() && cellCode.length > 0 && cellCode.length <= 4, // cellCode может быть не пустым
-                modifier = Modifier.fillMaxWidth().height(100.dp),
-                shape = MaterialTheme.shapes.large,
-                border = buttonBorder
+            // Сообщения о состоянии
+            AnimatedVisibility(
+                visible = uiState is AcceptUiState.Success || uiState is AcceptUiState.Error,
+                enter = slideInVertically() + fadeIn(),
+                exit = slideOutVertically() + fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter)
             ) {
-                Icon(Icons.Filled.Print, "Печать бирки", modifier = Modifier.size(42.dp))
-                Spacer(Modifier.width(16.dp))
-                Text("Печать бирки", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                when (uiState) {
+                    is AcceptUiState.Success -> {
+                        SuccessMessage(message = uiState.message)
+                    }
+                    is AcceptUiState.Error -> {
+                        ErrorMessage(message = uiState.message)
+                    }
+                    else -> {}
+                }
             }
+        }
+    }
+}
+
+@Composable
+fun PrinterStatusIndicator(
+    connectionState: ConnectionState,
+    onClick: () -> Unit
+) {
+    val (icon, tint) = when (connectionState) {
+        ConnectionState.CONNECTED -> Icons.Filled.Print to Color(0xFF4CAF50)
+        ConnectionState.CONNECTING -> Icons.Filled.Sync to MaterialTheme.colorScheme.primary
+        ConnectionState.DISCONNECTED -> Icons.Filled.PrintDisabled to MaterialTheme.colorScheme.error
+    }
+
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(48.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = "Состояние принтера",
+            tint = tint,
+            modifier = Modifier.size(32.dp)
+        )
+    }
+}
+
+@Composable
+fun SuccessMessage(message: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF4CAF50)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = message,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+fun ErrorMessage(message: String) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.error
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.Error,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = message,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
@@ -288,24 +456,21 @@ fun LargeInputTextField(
     modifier: Modifier = Modifier,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     fieldHeight: Dp = 120.dp,
-    labelFontSize: TextUnit = 25.sp, // Уменьшен по умолчанию
+    labelFontSize: TextUnit = 25.sp,
     valueFontSize: TextUnit = 40.sp,
     borderColor: Color,
-    labelTextAlign: TextAlign = TextAlign.Start // Новый параметр для выравнивания label
+    labelTextAlign: TextAlign = TextAlign.Start,
+    enabled: Boolean = true
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier.height(fieldHeight).fillMaxWidth(),
         label = {
-            // Обертка для выравнивания label по центру внутри доступного пространства
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 if (value.isEmpty()) {
                     Text(label, fontSize = labelFontSize, textAlign = labelTextAlign)
                 } else {
-                    // Когда значение есть, Material 3 перемещает label на рамку.
-                    // Центральное выравнивание здесь может выглядеть странно,
-                    // поэтому стандартное поведение TextField сохраняется.
                     Text(label, fontSize = MaterialTheme.typography.bodySmall.fontSize)
                 }
             }
@@ -316,6 +481,7 @@ fun LargeInputTextField(
         keyboardActions = keyboardActions,
         singleLine = true,
         shape = MaterialTheme.shapes.medium,
+        enabled = enabled,
         colors = TextFieldDefaults.outlinedTextFieldColors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = borderColor,
@@ -323,41 +489,25 @@ fun LargeInputTextField(
     )
 }
 
-
 @Preview(showBackground = true, widthDp = 400, heightDp = 900)
 @Composable
-fun AcceptScreenPreview_WithChanges() {
+fun AcceptScreenPreview_Connected() {
     MaterialTheme {
         AcceptScreen(
             scannedValue = "2365=2025/005=НЗ.КШ.040.25.001-01=Корпус",
             quantity = "12",
             cellCode = "АБ12",
+            uiState = AcceptUiState.Idle,
+            printerConnectionState = ConnectionState.CONNECTED,
             onScanWithScanner = {},
             onScanWithCamera = {},
             onQuantityChange = {},
             onCellCodeChange = {},
             onPrintLabel = {},
             onResetInputFields = {},
-            onBack = {}
-        )
-    }
-}
-
-@Preview(showBackground = true, widthDp = 400, heightDp = 900)
-@Composable
-fun AcceptScreenPreview_Empty_WithChanges() {
-    MaterialTheme {
-        AcceptScreen(
-            scannedValue = null,
-            quantity = "",
-            cellCode = "",
-            onScanWithScanner = {},
-            onScanWithCamera = {},
-            onQuantityChange = {},
-            onCellCodeChange = {},
-            onPrintLabel = {},
-            onResetInputFields = {},
-            onBack = {}
+            onClearMessage = {},
+            onBack = {},
+            onNavigateToSettings = {}
         )
     }
 }

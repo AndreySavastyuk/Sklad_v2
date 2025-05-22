@@ -1,60 +1,160 @@
 package com.example.myprinterapp.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.myprinterapp.printer.LabelData
+import com.example.myprinterapp.printer.PrinterService
+import com.example.myprinterapp.printer.ConnectionState
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-/**
- * ViewModel экрана «Приёмка».
- *
- * Держит количество и код ячейки, реагирует на изменения полей и
- * триггерит печать ярлыка.  Сейчас печать – просто заглушка (TODO).
- */
-class AcceptViewModel : ViewModel() {
+@HiltViewModel
+class AcceptViewModel @Inject constructor(
+    private val printerService: PrinterService
+) : ViewModel() {
 
-    /* ---------------- state ---------------- */
+    // Состояние полей ввода
     private val _scannedValue = MutableStateFlow<String?>(null)
     val scannedValue: StateFlow<String?> = _scannedValue
 
-    private val _quantity  = MutableStateFlow("")
-    val quantity:  StateFlow<String> = _quantity.asStateFlow()
+    private val _quantity = MutableStateFlow("")
+    val quantity: StateFlow<String> = _quantity.asStateFlow()
 
-    private val _cellCode  = MutableStateFlow("")
+    private val _cellCode = MutableStateFlow("")
     val cellCode: StateFlow<String> = _cellCode.asStateFlow()
 
+    // Состояние UI
+    private val _uiState = MutableStateFlow<AcceptUiState>(AcceptUiState.Idle)
+    val uiState: StateFlow<AcceptUiState> = _uiState.asStateFlow()
+
+    // Состояние принтера
+    val printerConnectionState: StateFlow<ConnectionState> = printerService.connectionState
+
+    /**
+     * Обработка отсканированного штрих-кода
+     */
     fun onBarcodeDetected(code: String) {
         _scannedValue.value = code
-    }
-
-    /* ---------------- events ---------------- */
-
-    /** Количество меняется только на цифры (проверку можно вынести выше) */
-    fun onQuantityChange(new: String) {
-        _quantity.value = new
-    }
-
-    /** Код ячейки – максимум 4 символа, латиница/цифра */
-    fun onCellCodeChange(new: String) {
-        _cellCode.value = new
+        _uiState.value = AcceptUiState.Idle
     }
 
     /**
-     * Печать ярлыка. Сейчас – заглушка.
-     * TODO: внедрить PrinterService, передавать текущие значения,
-     *       показывать успех/ошибку.
+     * Изменение количества
      */
-    fun onPrintLabel() {
-        val qty   = _quantity.value
-        val cell  = _cellCode.value
-        // TODO: проверить, что qty и cell валидные,
-        //       вызвать PrinterService.printLabel(...)
-        println("DEBUG: print label qty=$qty cell=$cell")
+    fun onQuantityChange(new: String) {
+        if (new.all { it.isDigit() } || new.isEmpty()) {
+            _quantity.value = new
+        }
     }
 
-    /** Если нужно очищать поля после успешной печати */
+    /**
+     * Изменение кода ячейки
+     */
+    fun onCellCodeChange(new: String) {
+        // Фильтруем только буквы и цифры, максимум 4 символа
+        val filtered = new.filter { it.isLetterOrDigit() }.take(4).uppercase()
+        _cellCode.value = filtered
+    }
+
+    /**
+     * Печать этикетки
+     */
+    fun onPrintLabel() {
+        val scannedData = _scannedValue.value
+        val qty = _quantity.value
+        val cell = _cellCode.value
+
+        // Валидация
+        if (scannedData == null) {
+            _uiState.value = AcceptUiState.Error("Сначала отсканируйте QR-код")
+            return
+        }
+
+        if (qty.isEmpty() || qty.toIntOrNull() == null || qty.toInt() <= 0) {
+            _uiState.value = AcceptUiState.Error("Введите корректное количество")
+            return
+        }
+
+        if (cell.isEmpty()) {
+            _uiState.value = AcceptUiState.Error("Введите код ячейки")
+            return
+        }
+
+        // Проверка подключения принтера
+        if (printerConnectionState.value != ConnectionState.CONNECTED) {
+            _uiState.value = AcceptUiState.Error("Принтер не подключен. Перейдите в настройки")
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = AcceptUiState.Printing
+
+            try {
+                // Парсим QR-код
+                val parts = scannedData.split('=')
+                if (parts.size < 4) {
+                    _uiState.value = AcceptUiState.Error("Неверный формат QR-кода")
+                    return@launch
+                }
+
+                val labelData = LabelData(
+                    partNumber = parts[2],
+                    description = "${parts[3]} x$qty", // Добавляем количество к описанию
+                    orderNumber = parts[1],
+                    location = cell,
+                    quantity = qty.toInt(),
+                    qrData = scannedData,
+                    labelType = "Приемка"
+                )
+
+                printerService.printLabel(labelData)
+                    .onSuccess {
+                        _uiState.value = AcceptUiState.Success("Этикетка напечатана")
+                        // Очищаем поля после успешной печати
+                        resetInputFields()
+                    }
+                    .onFailure { error ->
+                        _uiState.value = AcceptUiState.Error(
+                            "Ошибка печати: ${error.message ?: "Неизвестная ошибка"}"
+                        )
+                    }
+            } catch (e: Exception) {
+                _uiState.value = AcceptUiState.Error(
+                    "Ошибка: ${e.message ?: "Неизвестная ошибка"}"
+                )
+            }
+        }
+    }
+
+    /**
+     * Сброс полей ввода
+     */
     fun resetInputFields() {
         _quantity.value = ""
         _cellCode.value = ""
+        _scannedValue.value = null
     }
+
+    /**
+     * Очистка сообщений об ошибках/успехе
+     */
+    fun clearMessage() {
+        if (_uiState.value !is AcceptUiState.Printing) {
+            _uiState.value = AcceptUiState.Idle
+        }
+    }
+}
+
+/**
+ * Состояния UI экрана приемки
+ */
+sealed class AcceptUiState {
+    object Idle : AcceptUiState()
+    object Printing : AcceptUiState()
+    data class Success(val message: String) : AcceptUiState()
+    data class Error(val message: String) : AcceptUiState()
 }
