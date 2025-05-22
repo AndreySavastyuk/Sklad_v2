@@ -7,10 +7,22 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.util.Log
+import com.example.myprinterapp.data.db.PrintLogEntry
 import net.posprinter.TSPLConst
 import net.posprinter.TSPLPrinter
+import javax.inject.Singleton
+import javax.inject.Inject
+import com.example.myprinterapp.data.repo.PrintLogRepository
+import java.time.OffsetDateTime
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
-class PrinterService(private val context: Context) {
+@Singleton                                // ①
+class PrinterService @Inject constructor( // ②
+    private val context: Context,
+    private val printRepo: PrintLogRepository // <--- новый параметр
+) {
     companion object {
         private const val PRINTER_MAC = "10:23:81:5B:DA:29"
     }
@@ -39,7 +51,8 @@ class PrinterService(private val context: Context) {
         description: String,
         orderNumber: String,
         location: String,
-        qrData: String
+        qrData: String,
+        quantity: String?
     ) {
         tsplPrinter?.apply {
             try {
@@ -50,6 +63,8 @@ class PrinterService(private val context: Context) {
                 density(8)
                 reference(0, 0)
                 codePage("CP1251")
+                print(1)
+
 
                 // Рендер текста
                 drawTextBitmap("Part: $partNumber", 10, 10, 32f)
@@ -63,11 +78,31 @@ class PrinterService(private val context: Context) {
 
                 print(1)
                 Log.d("PrinterService", "printFullLabel: OK")
+
+
+                // ---------- LOG ----------
+                CoroutineScope(Dispatchers.IO).launch {
+                    printRepo.add(
+                        PrintLogEntry(
+                            dateTime    = OffsetDateTime.now(),
+                            labelType   = "Приемка",          // или "Комплектация"
+                            partNumber  = partNumber,
+                            orderNumber = orderNumber,
+                            quantity    = quantity?.toIntOrNull(),
+                            cellCode    = location,
+                            qrData      = qrData
+                        )
+                    )
+                }
+                // --------------------------
+
             } catch (e: Exception) {
                 Log.e("PrinterService", "printFullLabel failed", e)
             }
         } ?: Log.e("PrinterService", "TSPLPrinter is null")
     }
+
+    
 
     /**
      * Обработка результата сканирования QR + печать
@@ -87,7 +122,9 @@ class PrinterService(private val context: Context) {
             description = fullDesc,
             orderNumber = order,
             location    = cellCode,
-            qrData      = qrData
+            qrData      = qrData,
+            quantity    = quantity
+
         )
     }
 

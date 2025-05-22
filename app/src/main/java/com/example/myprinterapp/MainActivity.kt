@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavOptions
 import androidx.navigation.compose.*
 import com.example.myprinterapp.ui.*
+import com.example.myprinterapp.ui.log.PrintLogScreen
 import com.example.myprinterapp.ui.pick.*
 import com.example.myprinterapp.ui.theme.MyPrinterAppTheme
 import com.example.myprinterapp.viewmodel.AcceptViewModel
@@ -41,7 +42,9 @@ class MainActivity : ComponentActivity() {
                             onSettingsClick  = {}
                         )
                     }
-
+                    composable("log") {
+                        PrintLogScreen(onBack = { navController.popBackStack() })
+                    }
                     /* --- Приёмка --- */
                     composable("accept") {
                         /* подписываемся на VM */

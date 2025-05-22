@@ -1,16 +1,26 @@
 buildscript {
+    ext {
+        // Обновленные версии основных библиотек и плагинов
+        kotlin_version   = '1.9.24'         // обновлено
+        agp_version      = '8.4.2'          // обновлено
+        hilt_version     = '2.51.1'         // обновлено
+        room_version     = '2.6.1'
+        compose_bom      = '2024.06.00'     // обновлено
+    }
+    dependencies {
+        classpath("com.google.dagger:hilt-android-gradle-plugin:$hilt_version")
+    }
+}
+
+plugins {
+    id 'com.android.application' version "$agp_version" apply false
+    id 'com.android.library' version "$agp_version" apply false
+    id 'org.jetbrains.kotlin.android' version "$kotlin_version" apply false
+}
+
+allprojects {
     repositories {
-        // Плагины берутся из репозиториев, определённых в settings.gradle
         google()
         mavenCentral()
     }
-    dependencies {
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21" // <-- Используйте версию из каталога
-        classpath 'com.google.dagger:hilt-android-gradle-plugin:2.48' // Проверьте совместимость, если проблемы сохраняются
-        classpath "com.android.tools.build:gradle:8.10.0"
-    }
-}
-plugins {
-    id 'org.jetbrains.kotlin.android' version '2.0.0' apply false
-    id 'org.jetbrains.kotlin.plugin.compose' version '2.0.0' apply false
 }
