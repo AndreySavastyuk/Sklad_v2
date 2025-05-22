@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.time.OffsetDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -41,6 +42,8 @@ class PrinterService @Inject constructor(
         // Размеры в пикселях
         private const val LABEL_WIDTH_PX = (LABEL_WIDTH_MM / 25.4 * PRINTER_DPI).toInt()  // ~456px
         private const val LABEL_HEIGHT_PX = (LABEL_HEIGHT_MM / 25.4 * PRINTER_DPI).toInt() // ~320px
+        // Таймаут подключения
+        private const val CONNECTION_TIMEOUT_MS = 10000L
     }
 
     private val connectionManager = PrinterConnection(context)
@@ -59,28 +62,51 @@ class PrinterService @Inject constructor(
     }
 
     /**
-     * Подключение к принтеру по MAC-адресу
+     * Подключение к принтеру по MAC-адресу с таймаутом
      */
     suspend fun connect(macAddress: String): Result<Unit> {
         return try {
             _connectionState.value = ConnectionState.CONNECTING
-            Log.d(TAG, "Attempting to connect to printer with MAC: $macAddress") // Добавленный лог
+            Log.d(TAG, "Attempting to connect to printer with MAC: $macAddress")
 
-            val connected = connectionManager.connect(macAddress)
+            // Используем таймаут для подключения
+            val connected = withTimeout(CONNECTION_TIMEOUT_MS) {
+                connectionManager.connectAsync(macAddress)
+            }
+
             if (connected) {
-                tsplPrinter = TSPLPrinter(connectionManager.getConnection()!!)
-                _connectionState.value = ConnectionState.CONNECTED
-                Log.i(TAG, "Successfully connected to printer: $macAddress") // Добавленный лог
-                Result.success(Unit)
+                val deviceConnection = connectionManager.getConnection()
+                if (deviceConnection != null) {
+                    tsplPrinter = TSPLPrinter(deviceConnection)
+                    _connectionState.value = ConnectionState.CONNECTED
+                    Log.i(TAG, "Successfully connected to printer: $macAddress")
+
+                    // Тестовый звуковой сигнал для подтверждения подключения
+                    try {
+                        tsplPrinter?.sound(2, 100)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to play connection sound", e)
+                    }
+
+                    Result.success(Unit)
+                } else {
+                    _connectionState.value = ConnectionState.DISCONNECTED
+                    Log.e(TAG, "Connection object is null after successful connect")
+                    Result.failure(PrinterException("Ошибка инициализации принтера"))
+                }
             } else {
                 _connectionState.value = ConnectionState.DISCONNECTED
-                Log.w(TAG, "Failed to connect to printer: $macAddress. connectionManager.connect returned false.") // Добавленный лог
+                Log.w(TAG, "Failed to connect to printer: $macAddress")
                 Result.failure(PrinterException("Не удалось подключиться к принтеру"))
             }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            _connectionState.value = ConnectionState.DISCONNECTED
+            Log.e(TAG, "Connection timeout for $macAddress")
+            Result.failure(PrinterException("Превышено время ожидания подключения"))
         } catch (e: Exception) {
             _connectionState.value = ConnectionState.DISCONNECTED
-            Log.e(TAG, "Connection error to $macAddress", e) // Улучшенный лог ошибки
-            Result.failure(PrinterException("Ошибка подключения: ${e.message}")) // Можно добавить сообщение из исключения
+            Log.e(TAG, "Connection error to $macAddress", e)
+            Result.failure(PrinterException("Ошибка подключения: ${e.message}"))
         }
     }
 
@@ -88,9 +114,14 @@ class PrinterService @Inject constructor(
      * Отключение от принтера
      */
     fun disconnect() {
-        connectionManager.getConnection()?.close()
-        tsplPrinter = null
-        _connectionState.value = ConnectionState.DISCONNECTED
+        try {
+            connectionManager.close()
+            tsplPrinter = null
+            _connectionState.value = ConnectionState.DISCONNECTED
+            Log.d(TAG, "Printer disconnected")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during disconnect", e)
+        }
     }
 
     /**
@@ -118,7 +149,7 @@ class PrinterService @Inject constructor(
         } catch (e: Exception) {
             _printingState.value = PrintingState.ERROR
             Log.e(TAG, "Print error", e)
-            Result.failure(e)
+            Result.failure(PrinterException("Ошибка печати: ${e.message}"))
         }
     }
 
@@ -201,10 +232,10 @@ class PrinterService @Inject constructor(
      */
     private fun generateQRCode(data: String, size: Int): Bitmap {
         return try {
-            val writer = com.google.zxing.qrcode.QRCodeWriter()
+            val writer = QRCodeWriter()
             val bitMatrix = writer.encode(
                 data,
-                com.google.zxing.BarcodeFormat.QR_CODE,
+                BarcodeFormat.QR_CODE,
                 size,
                 size
             )
@@ -260,41 +291,53 @@ class PrinterService @Inject constructor(
     }
 
     /**
-     * Отправка изображения на принтер
+     * Отправка изображения на принтер используя TSPL команды
      */
     private fun printBitmap(bitmap: Bitmap) {
-        tsplPrinter?.apply {
-            try {
-                // Очистка буфера
-                cls()
+        val printer = tsplPrinter ?: throw PrinterException("Принтер не инициализирован")
 
-                // Установка размера этикетки
-                sizeMm(LABEL_WIDTH_MM, LABEL_HEIGHT_MM)
+        try {
+            Log.d(TAG, "Starting print job")
 
-                // Установка зазора между этикетками
-                gapMm(2.0, 0.0)
+            // Очистка буфера
+            printer.cls()
 
-                // Скорость печати
-                speed(2.0)
+            // Установка размера этикетки
+            printer.sizeMm(LABEL_WIDTH_MM, LABEL_HEIGHT_MM)
 
-                // Плотность печати
-                density(8)
+            // Установка зазора между этикетками
+            printer.gapMm(2.0, 0.0)
 
-                // Опорная точка
-                reference(0, 0)
+            // Скорость печати
+            printer.speed(2.0)
 
-                // Отправка изображения
-                bitmap(0, 0, 0, bitmap.width, bitmap)
+            // Плотность печати
+            printer.density(8)
 
-                // Печать одной копии
-                print(1)
+            // Направление печати
+            printer.direction(TSPLConst.DIRECTION_FORWARD)
 
-                Log.d(TAG, "Label printed successfully")
-            } catch (e: Exception) {
-                Log.e(TAG, "Print bitmap error", e)
-                throw PrinterException("Ошибка печати: ${e.message}")
-            }
-        } ?: throw PrinterException("Принтер не инициализирован")
+            // Опорная точка
+            printer.reference(0, 0)
+
+            // Очистка буфера еще раз перед отправкой изображения
+            printer.cls()
+
+            // Отправка изображения
+            // Используем правильный режим для TSPL
+            printer.bitmap(0, 0, TSPLConst.BMP_MODE_OVERWRITE, bitmap.width, bitmap)
+
+            // Печать одной копии
+            printer.print(1)
+
+            // Подтверждающий звуковой сигнал
+            printer.sound(1, 50)
+
+            Log.d(TAG, "Print job sent successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Print bitmap error", e)
+            throw PrinterException("Ошибка печати: ${e.message}")
+        }
     }
 
     /**
@@ -315,34 +358,15 @@ class PrinterService @Inject constructor(
     }
 
     /**
-     * Обработка данных из QR-кода для печати
+     * Проверка состояния принтера
      */
-    fun printFromScannedQR(qrData: String, quantity: String, cellCode: String): Result<Unit> {
-        return try {
-            // Парсим QR: id=order=part=description
-            val parts = qrData.split('=')
-            if (parts.size < 4) {
-                return Result.failure(PrinterException("Неверный формат QR-кода"))
-            }
-
-            val labelData = LabelData(
-                partNumber = parts[2],
-                description = "${parts[3]} x$quantity",
-                orderNumber = parts[1],
-                location = cellCode,
-                quantity = quantity.toIntOrNull() ?: 0,
-                qrData = qrData,
-                labelType = "Приемка"
-            )
-
-            CoroutineScope(Dispatchers.IO).launch {
-                printLabel(labelData)
-            }
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+    suspend fun checkPrinterStatus(): Result<PrinterStatus> {
+        if (_connectionState.value != ConnectionState.CONNECTED) {
+            return Result.failure(PrinterException("Принтер не подключен"))
         }
+
+        // TODO: Реализовать проверку статуса через TSPL команды
+        return Result.success(PrinterStatus.READY)
     }
 }
 
@@ -378,7 +402,17 @@ enum class PrintingState {
 }
 
 /**
+ * Статус принтера
+ */
+enum class PrinterStatus {
+    READY,
+    BUSY,
+    ERROR,
+    PAPER_OUT,
+    COVER_OPEN
+}
+
+/**
  * Исключение для ошибок принтера
  */
 class PrinterException(message: String) : Exception(message)
-

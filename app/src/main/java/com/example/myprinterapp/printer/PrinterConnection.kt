@@ -5,8 +5,8 @@ import android.util.Log
 import net.posprinter.POSConnect
 import net.posprinter.IDeviceConnection
 import net.posprinter.IConnectListener
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 class PrinterConnection(private val context: Context) {
     companion object {
@@ -16,31 +16,96 @@ class PrinterConnection(private val context: Context) {
     private var connection: IDeviceConnection? = null
 
     /**
-     * Инициализация SDK и создание соединения Bluetooth.
+     * Инициализация SDK
      */
     fun init() {
-        POSConnect.init(context.applicationContext)
+        try {
+            POSConnect.init(context.applicationContext)
+            Log.d(TAG, "POSConnect SDK initialized")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize POSConnect SDK", e)
+        }
     }
 
     /**
-     * Подключение по MAC-адресу.
-     * @return true, если подключение успешно.
+     * Асинхронное подключение по MAC-адресу с использованием корутин
      */
-    fun connect(mac: String): Boolean {
-        Log.d(TAG, "connect: mac=$mac")
+    suspend fun connectAsync(mac: String): Boolean = suspendCancellableCoroutine { continuation ->
+        Log.d(TAG, "Attempting to connect to: $mac")
+
+        // Закрываем предыдущее соединение, если есть
         connection?.close()
+
+        // Создаем новое соединение
         connection = POSConnect.createDevice(POSConnect.DEVICE_TYPE_BLUETOOTH)
-        val latch = CountDownLatch(1)
-        var success = false
-        connection!!.connect(mac, object : IConnectListener {
-            override fun onStatus(code: Int, info: String?, msg: String?) {
-                success = code == POSConnect.CONNECT_SUCCESS
-                latch.countDown()
+
+        connection?.connect(mac, object : IConnectListener {
+            override fun onStatus(code: Int, connectInfo: String?, message: String?) {
+                Log.d(TAG, "Connection status: code=$code, info=$connectInfo, msg=$message")
+
+                when (code) {
+                    POSConnect.CONNECT_SUCCESS -> {
+                        Log.i(TAG, "Successfully connected to printer: $mac")
+                        if (continuation.isActive) {
+                            continuation.resume(true)
+                        }
+                    }
+                    POSConnect.CONNECT_FAIL -> {
+                        Log.e(TAG, "Failed to connect to printer: $mac - $message")
+                        if (continuation.isActive) {
+                            continuation.resume(false)
+                        }
+                    }
+                    POSConnect.CONNECT_INTERRUPT -> {
+                        Log.w(TAG, "Connection interrupted: $mac")
+                        if (continuation.isActive) {
+                            continuation.resume(false)
+                        }
+                    }
+                    else -> {
+                        Log.w(TAG, "Unknown connection status code: $code")
+                        if (continuation.isActive) {
+                            continuation.resume(false)
+                        }
+                    }
+                }
             }
-        })
-        latch.await(5, TimeUnit.SECONDS)
-        return success
+        }) ?: run {
+            Log.e(TAG, "Failed to create connection")
+            continuation.resume(false)
+        }
+
+        // Обработка отмены корутины
+        continuation.invokeOnCancellation {
+            Log.d(TAG, "Connection cancelled")
+            connection?.close()
+            connection = null
+        }
     }
 
+    /**
+     * Закрытие соединения
+     */
+    fun close() {
+        try {
+            connection?.close()
+            Log.d(TAG, "Connection closed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing connection", e)
+        } finally {
+            connection = null
+        }
+    }
+
+    /**
+     * Получение текущего соединения
+     */
     fun getConnection(): IDeviceConnection? = connection
+
+    /**
+     * Проверка состояния подключения
+     */
+    fun isConnected(): Boolean {
+        return connection != null
+    }
 }
