@@ -3,6 +3,7 @@ package com.example.myprinterapp.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myprinterapp.printer.LabelData
+import com.example.myprinterapp.printer.LabelType
 import com.example.myprinterapp.printer.PrinterService
 import com.example.myprinterapp.printer.ConnectionState
 import com.example.myprinterapp.data.db.PrintLogEntry
@@ -51,6 +52,8 @@ class AcceptViewModel @Inject constructor(
     private val _editingRecord = MutableStateFlow<AcceptanceRecord?>(null)
     val editingRecord: StateFlow<AcceptanceRecord?> = _editingRecord.asStateFlow()
 
+    // Больше не нужен расширенный сервис, так как основной сервис поддерживает форматы
+
     init {
         // Загружаем последние операции при инициализации
         loadLastOperations()
@@ -82,7 +85,7 @@ class AcceptViewModel @Inject constructor(
     }
 
     /**
-     * Печать этикетки
+     * Печать этикетки с использованием нового формата
      */
     fun onPrintLabel() {
         val scannedData = _scannedValue.value
@@ -137,7 +140,8 @@ class AcceptViewModel @Inject constructor(
                     acceptanceDate = acceptanceDate.format(dateFormatter)
                 )
 
-                printerService.printLabel(labelData)
+                // Используем основной сервис с форматом для приемки
+                printerService.printLabel(labelData, LabelType.ACCEPTANCE_57x40)
                     .onSuccess {
                         _uiState.value = AcceptUiState.Success("Этикетка напечатана")
 
@@ -213,7 +217,7 @@ class AcceptViewModel @Inject constructor(
                 acceptanceDate = record.acceptedAt.format(dateFormatter)
             )
 
-            printerService.printLabel(labelData)
+            printerService.printLabel(labelData, LabelType.ACCEPTANCE_57x40)
                 .onSuccess {
                     _uiState.value = AcceptUiState.Success("Исправленная этикетка напечатана")
                     _showEditDialog.value = false

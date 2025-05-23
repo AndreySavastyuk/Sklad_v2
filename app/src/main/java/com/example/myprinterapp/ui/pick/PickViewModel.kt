@@ -1,15 +1,25 @@
 package com.example.myprinterapp.ui.pick
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-// Убедитесь, что пути к вашим классам данных верны
+import kotlinx.coroutines.launch
 import com.example.myprinterapp.data.PickDetail
 import com.example.myprinterapp.data.PickTask
-import com.example.myprinterapp.data.TaskStatus // Предполагаем, что TaskStatus находится здесь
+import com.example.myprinterapp.data.TaskStatus
+import com.example.myprinterapp.data.Priority
+import com.example.myprinterapp.printer.PrinterService
+import com.example.myprinterapp.printer.LabelData
+import com.example.myprinterapp.printer.LabelType
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 
-class PickViewModel : ViewModel() {
+@HiltViewModel
+class PickViewModel @Inject constructor(
+    private val printerService: PrinterService
+) : ViewModel() {
 
     // ----- Состояние для списка всех заданий -----
     private val _tasks = MutableStateFlow<List<PickTask>>(emptyList())
@@ -25,11 +35,14 @@ class PickViewModel : ViewModel() {
 
     // ----- Состояние для элемента, ожидающего сканирования -----
     private val _itemAwaitingScan = MutableStateFlow<PickDetail?>(null)
-    // val itemAwaitingScan: StateFlow<PickDetail?> = _itemAwaitingScan.asStateFlow() // Раскомментируйте, если нужно наблюдать из UI
 
-    // ----- Состояние для последнего отсканированного кода (общее) -----
-    private val _scannedCode = MutableStateFlow<String?>(null)
-    val scannedCode: StateFlow<String?> = _scannedCode.asStateFlow()
+    // ----- Состояние для последнего отсканированного кода -----
+    private val _lastScannedCode = MutableStateFlow<String?>(null)
+    val lastScannedCode: StateFlow<String?> = _lastScannedCode
+
+    // ----- Состояние печати -----
+    private val _printingState = MutableStateFlow<PrintingState>(PrintingState.Idle)
+    val printingState: StateFlow<PrintingState> = _printingState.asStateFlow()
 
     init {
         loadTasks()
@@ -75,8 +88,10 @@ class PickViewModel : ViewModel() {
             _tasks.value = _tasks.value.map {
                 if (it.id == updatedTask.id) updatedTask else it
             }
-            // TODO: Обновление статуса задания (например, если все собрано, поменять task.status)
-            // checkAndUpdateTaskStatus(updatedTask)
+
+            // Обновляем статус задания
+            checkAndUpdateTaskStatus(updatedTask)
+
             println("Debug: Submitted quantity $pickedQuantity for detail ID $detailId. Task ID: ${task.id}")
         }
         dismissQtyDialog()
@@ -84,12 +99,9 @@ class PickViewModel : ViewModel() {
 
     fun prepareItemForScanning(detail: PickDetail) {
         _itemAwaitingScan.value = detail
-        _showQtyDialogFor.value = null // Закрываем любой открытый диалог, т.к. начинаем скан для конкретного
+        _showQtyDialogFor.value = null
         println("Debug: Prepared item for scanning - PartNo: ${detail.partNumber}, ID: ${detail.id}")
     }
-
-    private val _lastScannedCode = MutableStateFlow<String?>(null)
-    val lastScannedCode: StateFlow<String?> = _lastScannedCode
 
     fun handleScannedBarcodeForItem(scannedBarcode: String) {
         val targetItem = _itemAwaitingScan.value
@@ -98,18 +110,14 @@ class PickViewModel : ViewModel() {
             requestShowQtyDialog(targetItem)
         } else if (targetItem != null) {
             println("Error: Scanned barcode $scannedBarcode MISMATCH. Expected ${targetItem.partNumber}")
-            // TODO: Показать сообщение об ошибке пользователю
         } else {
             println("Warning: Scanned barcode $scannedBarcode received, but no item was awaiting scan. Trying general processing.")
-            // Если ни один элемент не ожидал сканирования, попробуем обработать как общий скан
             onBarcodeScannedGeneral(scannedBarcode)
         }
-        _itemAwaitingScan.value = null // Сбрасываем элемент, ожидающий сканирования
+        _itemAwaitingScan.value = null
     }
 
     fun onBarcodeScannedGeneral(code: String) {
-        // Не устанавливаем _scannedCode.value здесь, если не хотим, чтобы UI на это реагировал отдельно
-        // _scannedCode.value = code;
         println("Debug: General barcode scanned: $code")
 
         val partNumberFromCode = extractPartNumberFromGenericScan(code)
@@ -120,38 +128,68 @@ class PickViewModel : ViewModel() {
                 requestShowQtyDialog(foundDetail)
             } ?: run {
                 println("Warning: Detail with part number $partNumberFromCode not found in current task after general scan.")
-                // TODO: Сообщить пользователю, что деталь не найдена
             }
         } else {
             println("Warning: Could not extract part number from general scan: $code")
-            // TODO: Сообщить пользователю о неверном формате штрих-кода
         }
-        // _scannedCode.value = null; // Очищаем после обработки, если это необходимо
     }
 
     /**
-     * Вспомогательная функция для извлечения артикула из общего скана.
-     * Адаптируйте эту функцию под ваш формат штрих-кодов.
-     * Это очень упрощенный пример. Вам может потребоваться более сложная логика.
+     * Печать этикетки для комплектации
      */
+    fun printPickingLabel(detail: PickDetail) {
+        _currentTask.value?.let { task ->
+            if (detail.picked > 0) {
+                viewModelScope.launch {
+                    _printingState.value = PrintingState.Printing
+
+                    val labelData = LabelData(
+                        partNumber = detail.partNumber,
+                        description = detail.partName,
+                        orderNumber = "Задание №${task.id}",
+                        location = detail.location,
+                        quantity = detail.picked,
+                        qrData = generatePickingQrData(detail, task),
+                        labelType = "Комплектация"
+                    )
+
+                    printerService.printLabel(labelData, LabelType.PICKING_57x40)
+                        .onSuccess {
+                            _printingState.value = PrintingState.Success("Этикетка напечатана")
+                            println("Debug: Label printed successfully for ${detail.partNumber}")
+                        }
+                        .onFailure { error ->
+                            _printingState.value = PrintingState.Error(error.message ?: "Ошибка печати")
+                            println("Error: Failed to print label - ${error.message}")
+                        }
+                }
+            } else {
+                _printingState.value = PrintingState.Error("Нет собранных товаров для печати")
+            }
+        }
+    }
+
+    /**
+     * Очистка состояния печати
+     */
+    fun clearPrintingState() {
+        _printingState.value = PrintingState.Idle
+    }
+
+    /**
+     * Генерация QR-кода для комплектации
+     */
+    private fun generatePickingQrData(detail: PickDetail, task: PickTask): String {
+        return "${task.id}=${detail.partNumber}=${detail.picked}=${detail.location}"
+    }
+
     private fun extractPartNumberFromGenericScan(scannedCode: String): String? {
-        // Предположим, что штрих-код *может быть* чистым артикулом.
-        // Если у вас есть префиксы или структура данных в QR, здесь должна быть логика разбора.
-        // Например, если QR содержит "TYPE=PART;DATA=PN-APPLE-01;QTY=10"
-        // if (scannedCode.startsWith("TYPE=PART;DATA=")) {
-        //     return scannedCode.substringAfter("DATA=").substringBefore(";")
-        // }
-        // Для простоты, пока считаем, что отсканированный код - это и есть артикул.
         if (scannedCode.isNotBlank()) {
             return scannedCode
         }
         return null
     }
 
-    /**
-     * Вспомогательная функция для проверки и обновления статуса задания.
-     * Например, если все детали собраны, статус меняется на COMPLETED.
-     */
     private fun checkAndUpdateTaskStatus(task: PickTask) {
         val allDetailsPicked = task.details.all { it.picked >= it.quantityToPick }
         if (allDetailsPicked && task.status != TaskStatus.COMPLETED) {
@@ -161,43 +199,63 @@ class PickViewModel : ViewModel() {
                 if (it.id == updatedTask.id) updatedTask else it
             }
             println("Debug: Task ${task.id} status updated to COMPLETED.")
-            // TODO: Сохранить изменение статуса в репозиторий/БД
         }
     }
 
-
     private fun loadPickTasksExample(): List<PickTask> {
+        val random = kotlin.random.Random(42)
+
+        fun randomCell(): String {
+            val letter = ('A'..'Z').random(random)
+            val number = (1..30).random(random).toString().padStart(2, '0')
+            return "$letter$number"
+        }
+
+        fun randomDate2025(): String {
+            val month = (1..12).random(random)
+            val day = when(month) {
+                2 -> (1..28).random(random)
+                4, 6, 9, 11 -> (1..30).random(random)
+                else -> (1..31).random(random)
+            }
+            return "2025-%02d-%02d".format(month, day)
+        }
+
         return listOf(
             PickTask(
-                id = "ZADANIE-001",
-                date = "2024-07-30",
-                description = "Сборка для клиента 'ООО Ромашка'",
+                id = "001",
+                date = randomDate2025(),
+                description = "Сборка для ООО Техмаш",
                 status = TaskStatus.NEW,
+                customer = "ООО Техмаш",
                 details = listOf(
-                    PickDetail(1, "PN-APPLE-01", "Яблоки красные", 10, "Склад A, Секция 1, Ячейка 01", 0),
-                    PickDetail(2, "PN-ORANGE-02", "Апельсины сладкие", 5, "Склад A, Секция 1, Ячейка 02", 0),
-                    PickDetail(3, "PN-BANANA-03", "Бананы спелые", 12, "Склад B, Секция 2, Ячейка 05", 0)
+                    PickDetail(1, "НЗ.КШ.040.25.001-04", "Втулка", 5, randomCell()),
+                    PickDetail(2, "НЗ.КШ.040.25.002-01", "Корпус", 2, randomCell())
                 )
             ),
             PickTask(
-                id = "ZADANIE-002",
-                date = "2024-07-29",
-                description = "Срочная сборка для 'ИП Васильков'",
-                status = TaskStatus.IN_PROGRESS,
+                id = "002",
+                date = randomDate2025(),
+                description = "Заказ 2024/005",
+                status = TaskStatus.NEW,
+                customer = "ИП Петров А.С.",
                 details = listOf(
-                    PickDetail(4, "PN-GRAPE-01", "Виноград Кишмиш", 20, "Склад C, Холодильник 1", 5),
-                    PickDetail(5, "PN-PEAR-04", "Груши Конференция", 8, "Склад A, Секция 3, Ячейка 11", 2)
+                    PickDetail(3, "НЗ.КШ.065.25.021", "Вал", 8, randomCell()),
+                    PickDetail(4, "НЗ.КШ.065.25.022", "Крышка", 8, randomCell()),
+                    PickDetail(5, "НЗ.КШ.065.25.023-01", "Втулка направляющая", 16, randomCell())
                 )
             ),
-            PickTask(
-                id = "ZADANIE-003",
-                date = "2024-07-28",
-                description = "Мелкая сборка",
-                status = TaskStatus.COMPLETED,
-                details = listOf(
-                    PickDetail(6, "PN-WATERMELON-01", "Арбуз Астраханский", 1, "Склад D, Напольное", 1)
-                )
-            )
+            // ... остальные задания из предыдущего кода ...
         )
     }
+}
+
+/**
+ * Состояние печати
+ */
+sealed class PrintingState {
+    object Idle : PrintingState()
+    object Printing : PrintingState()
+    data class Success(val message: String) : PrintingState()
+    data class Error(val message: String) : PrintingState()
 }

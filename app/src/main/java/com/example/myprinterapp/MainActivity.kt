@@ -12,10 +12,12 @@ import androidx.navigation.compose.*
 import com.example.myprinterapp.ui.*
 import com.example.myprinterapp.ui.log.PrintLogScreen
 import com.example.myprinterapp.ui.pick.*
-import com.example.myprinterapp.ui.settings.SettingsScreen
+import com.example.myprinterapp.ui.settings.SettingsScreenWithWiFi
+import com.example.myprinterapp.ui.settings.WifiScreen
 import com.example.myprinterapp.ui.theme.MyPrinterAppTheme
 import com.example.myprinterapp.viewmodel.AcceptViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -57,7 +59,15 @@ class MainActivity : ComponentActivity() {
 
                     /* --- Настройки --- */
                     composable("settings") {
-                        SettingsScreen(onBack = { navController.popBackStack() })
+                        SettingsScreenWithWiFi(
+                            onBack = { navController.popBackStack() },
+                            onNavigateToWiFi = { navController.navigate("wifi") }
+                        )
+                    }
+
+                    /* --- WiFi настройки --- */
+                    composable("wifi") {
+                        WifiScreen(onBack = { navController.popBackStack() })
                     }
 
                     /* --- Приёмка --- */
@@ -86,8 +96,7 @@ class MainActivity : ComponentActivity() {
                             onResetInputFields = acceptVm::resetInputFields,
                             onClearMessage = acceptVm::clearMessage,
                             onBack = { navController.popBackStack() },
-                            onNavigateToSettings = { navController.navigate("settings") },
-                            viewModel = acceptVm  // Передаем viewModel
+                            onNavigateToSettings = { navController.navigate("settings") }
                         )
                     }
 
@@ -113,7 +122,7 @@ class MainActivity : ComponentActivity() {
 
                     /* --- Список заданий («Комплектация») --- */
                     composable("pick_tasks") {
-                        val pickVm: PickViewModel = viewModel()
+                        val pickVm: PickViewModel = hiltViewModel()
                         val tasks = pickVm.tasks.collectAsState().value
 
                         PickTasksScreen(
@@ -122,29 +131,30 @@ class MainActivity : ComponentActivity() {
                                 pickVm.openTask(id)
                                 navController.navigate("pick_details")
                             },
-                            onBack = { navController.popBackStack() },
-                            onImportTasks = { /* TODO: Импорт заданий */ },
-                            onFilterTasks = { /* TODO: Фильтрация */ }
+                            onBack = { navController.popBackStack() }
                         )
                     }
 
                     /* --- Детали конкретного задания --- */
                     composable("pick_details") {
-                        val pickVm: PickViewModel = viewModel()
+                        val pickVm: PickViewModel = hiltViewModel()
                         val task by pickVm.currentTask.collectAsState()
                         val dialogFor by pickVm.showQtyDialogFor.collectAsState()
                         val lastCode by pickVm.lastScannedCode.collectAsState()
 
-                        PickDetailsScreen(
+                        PickDetailsScreenImproved(
                             task = task,
                             showQtyDialogFor = dialogFor,
                             onShowQtyDialog = pickVm::requestShowQtyDialog,
                             onDismissQtyDialog = pickVm::dismissQtyDialog,
                             onSubmitQty = pickVm::submitPickedQuantity,
                             onScanAnyCode = pickVm::handleScannedBarcodeForItem,
-                            onSubmitPickedQty = pickVm::submitPickedQuantity, // alias
                             scannedQr = lastCode,
-                            onBack = { navController.popBackStack() }
+                            onBack = { navController.popBackStack() },
+                            onPrintLabel = { detail ->
+                                // Печать этикетки комплектации через ViewModel
+                                pickVm.printPickingLabel(detail)
+                            }
                         )
                     }
                 }
@@ -152,3 +162,4 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
