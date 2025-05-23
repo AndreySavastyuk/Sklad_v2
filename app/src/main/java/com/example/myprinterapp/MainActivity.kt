@@ -86,7 +86,8 @@ class MainActivity : ComponentActivity() {
                             onResetInputFields = acceptVm::resetInputFields,
                             onClearMessage = acceptVm::clearMessage,
                             onBack = { navController.popBackStack() },
-                            onNavigateToSettings = { navController.navigate("settings") }
+                            onNavigateToSettings = { navController.navigate("settings") },
+                            viewModel = acceptVm  // Передаем viewModel
                         )
                     }
 
@@ -121,7 +122,9 @@ class MainActivity : ComponentActivity() {
                                 pickVm.openTask(id)
                                 navController.navigate("pick_details")
                             },
-                            onBack = { navController.popBackStack() }
+                            onBack = { navController.popBackStack() },
+                            onImportTasks = { /* TODO: Импорт заданий */ },
+                            onFilterTasks = { /* TODO: Фильтрация */ }
                         )
                     }
 

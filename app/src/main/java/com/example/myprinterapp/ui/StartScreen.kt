@@ -3,29 +3,29 @@ package com.example.myprinterapp.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward // Для кнопок, если нужно
-import androidx.compose.material.icons.filled.Inventory // Альтернативный лого
-import androidx.compose.material.icons.filled.Warehouse // Для логотипа
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.system.exitProcess
 
-// Утилита для затемнения цвета, если еще не определена глобально
-// fun Color.darker(factor: Float = 0.8f): Color {
-// return Color(
-// red = this.red * factor,
-// green = this.green * factor,
-// blue = this.blue * factor,
-// alpha = this.alpha
-// )
-// }
+// Утилита для затемнения цвета
+private fun Color.darker(factor: Float = 0.8f): Color {
+    return Color(
+        red = this.red * factor,
+        green = this.green * factor,
+        blue = this.blue * factor,
+        alpha = this.alpha
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,9 +34,12 @@ fun StartScreen(
     onPickClick: () -> Unit,
     onJournalClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    logoIcon: ImageVector = Icons.Filled.Warehouse // Параметр для логотипа по умолчанию
+    logoIcon: ImageVector = Icons.Filled.Warehouse
 ) {
-    val borderColor = MaterialTheme.colorScheme.outline.darker(0.8f) // Используем функцию из AcceptScreen или определим здесь
+    val context = LocalContext.current
+    var showExitDialog by remember { mutableStateOf(false) }
+
+    val borderColor = MaterialTheme.colorScheme.outline.darker(0.8f)
     val buttonBorder = BorderStroke(1.dp, borderColor)
 
     Scaffold(
@@ -44,55 +47,71 @@ fun StartScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        "Управление складом", // Или название вашего приложения
+                        "Управление складом",
                         fontSize = 26.sp,
                         fontWeight = FontWeight.Bold
                     )
                 },
+                actions = {
+                    // Кнопка выхода в углу
+                    IconButton(
+                        onClick = { showExitDialog = true },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.ExitToApp,
+                            contentDescription = "Выход",
+                            modifier = Modifier.size(32.dp),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f) // Слегка прозрачный TopAppBar
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
                 )
             )
         },
-        containerColor = MaterialTheme.colorScheme.surface // Цвет фона Scaffold
+        containerColor = MaterialTheme.colorScheme.surface
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 24.dp, vertical = 16.dp), // Немного больше горизонтальный padding
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center // Центрируем содержимое вертикально
+            verticalArrangement = Arrangement.Center
         ) {
             // Секция с логотипом
             Icon(
                 imageVector = logoIcon,
                 contentDescription = "Логотип приложения",
                 modifier = Modifier
-                    .size(160.dp) // Большой размер для логотипа
-                    .padding(bottom = 48.dp), // Отступ снизу от логотипа
-                tint = MaterialTheme.colorScheme.primary // Цвет логотипа
+                    .size(160.dp)
+                    .padding(bottom = 48.dp),
+                tint = MaterialTheme.colorScheme.primary
             )
 
             // Кнопки меню
             val buttonModifier = Modifier
                 .fillMaxWidth()
-                .height(72.dp) // Увеличенная высота кнопок
+                .height(72.dp)
 
             StartScreenButton(
                 text = "Приемка продукции",
                 onClick = onReceiveClick,
                 modifier = buttonModifier,
-                border = buttonBorder
+                border = buttonBorder,
+                icon = Icons.Filled.Inventory
             )
 
-            Spacer(modifier = Modifier.height(20.dp)) // Увеличенный отступ
+            Spacer(modifier = Modifier.height(20.dp))
 
             StartScreenButton(
                 text = "Комплектация заказа",
                 onClick = onPickClick,
                 modifier = buttonModifier,
-                border = buttonBorder
+                border = buttonBorder,
+                icon = Icons.Filled.ShoppingCart
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -102,7 +121,8 @@ fun StartScreen(
                 onClick = onJournalClick,
                 modifier = buttonModifier,
                 border = buttonBorder,
-                enabled = true // Изменено с false
+                icon = Icons.Filled.History,
+                enabled = true
             )
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -111,9 +131,51 @@ fun StartScreen(
                 text = "Настройки",
                 onClick = onSettingsClick,
                 modifier = buttonModifier,
-                border = buttonBorder
+                border = buttonBorder,
+                icon = Icons.Filled.Settings
             )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Дополнительная кнопка выхода внизу
+            OutlinedButton(
+                onClick = { showExitDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                border = BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Icon(
+                    Icons.Filled.ExitToApp,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "Выход из приложения",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
+    }
+
+    // Диалог подтверждения выхода
+    if (showExitDialog) {
+        ExitAppDialog(
+            onConfirm = {
+                // Закрываем приложение
+                (context as? android.app.Activity)?.finishAndRemoveTask()
+                    ?: exitProcess(0)
+            },
+            onDismiss = { showExitDialog = false }
+        )
     }
 }
 
@@ -124,13 +186,13 @@ private fun StartScreenButton(
     modifier: Modifier = Modifier,
     border: BorderStroke? = null,
     enabled: Boolean = true,
-    icon: ImageVector? = Icons.Filled.ArrowForward // Опциональная иконка для кнопки
+    icon: ImageVector? = null
 ) {
     Button(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        shape = MaterialTheme.shapes.medium, // Скругленные углы
+        shape = MaterialTheme.shapes.medium,
         border = border,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -140,60 +202,31 @@ private fun StartScreenButton(
         ),
         contentPadding = PaddingValues(horizontal = 24.dp)
     ) {
-        Text(
-            text = text,
-            fontSize = 20.sp, // Увеличенный шрифт на кнопках
-            fontWeight = FontWeight.Medium
-        )
         if (icon != null) {
-            Spacer(Modifier.width(12.dp))
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(28.dp)
             )
+            Spacer(Modifier.width(12.dp))
         }
+        Text(
+            text = text,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
-
-// Функция для затемнения цвета (если она не в общем файле)
-// Убедитесь, что эта функция доступна в области видимости StartScreen.kt
-// Если она уже есть в AcceptScreen.kt и они в одном пакете, можно не дублировать.
-// Для Preview может потребоваться ее здесь определить, если Preview изолирован.
-private fun Color.darker(factor: Float = 0.8f): Color {
-    return Color(
-        red = this.red * factor,
-        green = this.green * factor,
-        blue = this.blue * factor,
-        alpha = this.alpha
-    )
-}
-
 
 @Preview(showBackground = true, widthDp = 400, heightDp = 800)
 @Composable
 fun StartScreenPreview() {
-    MaterialTheme(colorScheme = darkColorScheme()) { // Используем темную тему для контраста или вашу обычную
+    MaterialTheme {
         StartScreen(
             onReceiveClick = {},
             onPickClick = {},
             onJournalClick = {},
             onSettingsClick = {}
         )
-    }
-}
-
-@Preview(showBackground = true, widthDp = 400, heightDp = 800)
-@Composable
-fun StartScreenPreview_CustomLogo() {
-    MaterialTheme {
-        StartScreen(
-            onReceiveClick = {},
-            onPickClick = {},
-            onJournalClick = {},
-            onSettingsClick = {},
-            logoIcon = Icons.Filled.Inventory
-        )
-
     }
 }

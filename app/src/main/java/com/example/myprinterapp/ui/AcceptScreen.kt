@@ -33,11 +33,15 @@ import androidx.compose.ui.unit.sp
 import com.example.myprinterapp.printer.ConnectionState
 import com.example.myprinterapp.ui.theme.WarmYellow
 import com.example.myprinterapp.viewmodel.AcceptUiState
+import com.example.myprinterapp.viewmodel.AcceptanceRecord
 import kotlinx.coroutines.delay
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.remember
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.myprinterapp.viewmodel.AcceptViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 
 // Утилита для затемнения цвета (простой вариант)
 private fun Color.darker(factor: Float = 0.8f): Color {
@@ -84,14 +88,18 @@ fun AcceptScreen(
     onResetInputFields: () -> Unit,
     onClearMessage: () -> Unit,
     onBack: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    viewModel: AcceptViewModel = hiltViewModel()
 ) {
     val focusManager = LocalFocusManager.current
     val parsedData = remember(scannedValue) { parseFixedQrValue(scannedValue) }
 
+    val showEditDialog by viewModel.showEditDialog.collectAsState()
+    val editingRecord by viewModel.editingRecord.collectAsState()
+    val lastOperations by viewModel.lastOperations.collectAsState()
+
     val borderColor = MaterialTheme.colorScheme.outline.darker(0.8f)
     val buttonBorder = BorderStroke(1.dp, borderColor)
-
 
     // Автоматически скрываем сообщения через 3 секунды
     LaunchedEffect(uiState) {
@@ -114,6 +122,28 @@ fun AcceptScreen(
                     }
                 },
                 actions = {
+                    // Кнопка истории/редактирования последней операции
+                    if (lastOperations.isNotEmpty()) {
+                        IconButton(
+                            onClick = { viewModel.openLastOperation() },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            BadgedBox(
+                                badge = {
+                                    Badge {
+                                        Text(lastOperations.size.toString())
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Filled.History,
+                                    contentDescription = "Последние операции",
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+                    }
+
                     // Индикатор состояния принтера
                     PrinterStatusIndicator(
                         connectionState = printerConnectionState,
@@ -355,6 +385,17 @@ fun AcceptScreen(
             }
         }
     }
+
+    // Диалог редактирования
+    if (showEditDialog && editingRecord != null) {
+        EditAcceptanceDialog(
+            record = editingRecord!!,
+            onDismiss = { viewModel.closeEditDialog() },
+            onConfirm = { qty, cell ->
+                viewModel.updateRecord(editingRecord!!.id, qty, cell)
+            }
+        )
+    }
 }
 
 @Composable
@@ -487,27 +528,4 @@ fun LargeInputTextField(
             unfocusedBorderColor = borderColor,
         )
     )
-}
-
-@Preview(showBackground = true, widthDp = 400, heightDp = 900)
-@Composable
-fun AcceptScreenPreview_Connected() {
-    MaterialTheme {
-        AcceptScreen(
-            scannedValue = "2365=2025/005=НЗ.КШ.040.25.001-01=Корпус",
-            quantity = "12",
-            cellCode = "АБ12",
-            uiState = AcceptUiState.Idle,
-            printerConnectionState = ConnectionState.CONNECTED,
-            onScanWithScanner = {},
-            onScanWithCamera = {},
-            onQuantityChange = {},
-            onCellCodeChange = {},
-            onPrintLabel = {},
-            onResetInputFields = {},
-            onClearMessage = {},
-            onBack = {},
-            onNavigateToSettings = {}
-        )
-    }
 }

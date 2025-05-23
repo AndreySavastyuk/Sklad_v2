@@ -5,16 +5,21 @@ import androidx.lifecycle.viewModelScope
 import com.example.myprinterapp.printer.LabelData
 import com.example.myprinterapp.printer.PrinterService
 import com.example.myprinterapp.printer.ConnectionState
+import com.example.myprinterapp.data.db.PrintLogEntry
+import com.example.myprinterapp.data.repo.PrintLogRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 @HiltViewModel
 class AcceptViewModel @Inject constructor(
-    private val printerService: PrinterService
+    private val printerService: PrinterService,
+    private val printLogRepository: PrintLogRepository
 ) : ViewModel() {
 
     // Состояние полей ввода
@@ -33,6 +38,23 @@ class AcceptViewModel @Inject constructor(
 
     // Состояние принтера
     val printerConnectionState: StateFlow<ConnectionState> = printerService.connectionState
+
+    // История последних операций
+    private val _lastOperations = MutableStateFlow<List<AcceptanceRecord>>(emptyList())
+    val lastOperations: StateFlow<List<AcceptanceRecord>> = _lastOperations.asStateFlow()
+
+    // Показывать диалог редактирования
+    private val _showEditDialog = MutableStateFlow(false)
+    val showEditDialog: StateFlow<Boolean> = _showEditDialog.asStateFlow()
+
+    // Запись для редактирования
+    private val _editingRecord = MutableStateFlow<AcceptanceRecord?>(null)
+    val editingRecord: StateFlow<AcceptanceRecord?> = _editingRecord.asStateFlow()
+
+    init {
+        // Загружаем последние операции при инициализации
+        loadLastOperations()
+    }
 
     /**
      * Обработка отсканированного штрих-кода
@@ -55,7 +77,6 @@ class AcceptViewModel @Inject constructor(
      * Изменение кода ячейки
      */
     fun onCellCodeChange(new: String) {
-        // Фильтруем только буквы и цифры, максимум 4 символа
         val filtered = new.filter { it.isLetterOrDigit() }.take(4).uppercase()
         _cellCode.value = filtered
     }
@@ -101,19 +122,39 @@ class AcceptViewModel @Inject constructor(
                     return@launch
                 }
 
+                // Добавляем дату приемки
+                val acceptanceDate = LocalDateTime.now()
+                val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+
                 val labelData = LabelData(
                     partNumber = parts[2],
-                    description = "${parts[3]} x$qty", // Добавляем количество к описанию
+                    description = parts[3],
                     orderNumber = parts[1],
                     location = cell,
                     quantity = qty.toInt(),
                     qrData = scannedData,
-                    labelType = "Приемка"
+                    labelType = "Приемка",
+                    acceptanceDate = acceptanceDate.format(dateFormatter)
                 )
 
                 printerService.printLabel(labelData)
                     .onSuccess {
                         _uiState.value = AcceptUiState.Success("Этикетка напечатана")
+
+                        // Сохраняем запись о приемке
+                        val record = AcceptanceRecord(
+                            id = System.currentTimeMillis().toString(),
+                            partNumber = parts[2],
+                            partName = parts[3],
+                            orderNumber = parts[1],
+                            quantity = qty.toInt(),
+                            cellCode = cell,
+                            qrData = scannedData,
+                            acceptedAt = acceptanceDate,
+                            routeCardNumber = parts[0]
+                        )
+                        addToHistory(record)
+
                         // Очищаем поля после успешной печати
                         resetInputFields()
                     }
@@ -128,6 +169,67 @@ class AcceptViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Открытие последней операции для редактирования
+     */
+    fun openLastOperation() {
+        _lastOperations.value.firstOrNull()?.let { record ->
+            _editingRecord.value = record
+            _showEditDialog.value = true
+        }
+    }
+
+    /**
+     * Обновление записи после редактирования
+     */
+    fun updateRecord(recordId: String, newQuantity: Int, newCellCode: String) {
+        viewModelScope.launch {
+            val record = _lastOperations.value.find { it.id == recordId } ?: return@launch
+
+            // Обновляем запись
+            val updatedRecord = record.copy(
+                quantity = newQuantity,
+                cellCode = newCellCode,
+                editedAt = LocalDateTime.now()
+            )
+
+            // Обновляем историю
+            _lastOperations.value = _lastOperations.value.map {
+                if (it.id == recordId) updatedRecord else it
+            }
+
+            // Печатаем новую этикетку
+            val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
+            val labelData = LabelData(
+                partNumber = record.partNumber,
+                description = "${record.partName} (Изменено)",
+                orderNumber = record.orderNumber,
+                location = newCellCode,
+                quantity = newQuantity,
+                qrData = record.qrData,
+                labelType = "Приемка (изм.)",
+                acceptanceDate = record.acceptedAt.format(dateFormatter)
+            )
+
+            printerService.printLabel(labelData)
+                .onSuccess {
+                    _uiState.value = AcceptUiState.Success("Исправленная этикетка напечатана")
+                    _showEditDialog.value = false
+                }
+                .onFailure { error ->
+                    _uiState.value = AcceptUiState.Error("Ошибка печати: ${error.message}")
+                }
+        }
+    }
+
+    /**
+     * Закрытие диалога редактирования
+     */
+    fun closeEditDialog() {
+        _showEditDialog.value = false
+        _editingRecord.value = null
     }
 
     /**
@@ -147,6 +249,27 @@ class AcceptViewModel @Inject constructor(
             _uiState.value = AcceptUiState.Idle
         }
     }
+
+    /**
+     * Добавление записи в историю
+     */
+    private fun addToHistory(record: AcceptanceRecord) {
+        val currentHistory = _lastOperations.value.toMutableList()
+        currentHistory.add(0, record) // Добавляем в начало
+        // Оставляем только последние 10 записей
+        _lastOperations.value = currentHistory.take(10)
+    }
+
+    /**
+     * Загрузка последних операций
+     */
+    private fun loadLastOperations() {
+        viewModelScope.launch {
+            // TODO: Загрузить из базы данных
+            // Пока используем пустой список
+            _lastOperations.value = emptyList()
+        }
+    }
 }
 
 /**
@@ -158,3 +281,19 @@ sealed class AcceptUiState {
     data class Success(val message: String) : AcceptUiState()
     data class Error(val message: String) : AcceptUiState()
 }
+
+/**
+ * Запись о приемке товара
+ */
+data class AcceptanceRecord(
+    val id: String,
+    val partNumber: String,
+    val partName: String,
+    val orderNumber: String,
+    val quantity: Int,
+    val cellCode: String,
+    val qrData: String,
+    val acceptedAt: LocalDateTime,
+    val routeCardNumber: String,
+    val editedAt: LocalDateTime? = null
+)
