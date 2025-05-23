@@ -1,5 +1,6 @@
-package com.example.myprinterapp.ui.pick // Убедитесь, что пакет правильный
+package com.example.myprinterapp.ui.pick
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,7 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -18,29 +19,53 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.myprinterapp.data.PickTask
-import com.example.myprinterapp.data.TaskStatus
-import com.example.myprinterapp.ui.theme.MyPrinterAppTheme // Предполагая, что у вас есть тема
+import com.example.myprinterapp.data.*
+import com.example.myprinterapp.ui.theme.MyPrinterAppTheme
+import java.time.LocalDateTime
 
-// Утилита для затемнения цвета, если она не в общем файле
-// fun Color.darker(factor: Float = 0.8f): Color { ... }
+// Утилита для затемнения цвета
+private fun Color.darker(factor: Float = 0.8f): Color {
+    return Color(
+        red = this.red * factor,
+        green = this.green * factor,
+        blue = this.blue * factor,
+        alpha = this.alpha
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PickTasksScreen(
     tasks: List<PickTask>,
     onOpenTask: (taskId: String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onImportTasks: () -> Unit = {},
+    onFilterTasks: () -> Unit = {}
 ) {
+    var selectedFilter by remember { mutableStateOf<TaskStatus?>(null) }
+    
+    val filteredTasks = if (selectedFilter != null) {
+        tasks.filter { it.status == selectedFilter }
+    } else {
+        tasks
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Text(
-                        "Задания на комплектацию",
-                        fontSize = 24.sp, // Немного меньше для соответствия
-                        fontWeight = FontWeight.Bold
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Задания на комплектацию",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Всего: ${tasks.size} | Активных: ${tasks.count { it.status == TaskStatus.IN_PROGRESS }}",
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -51,6 +76,24 @@ fun PickTasksScreen(
                         )
                     }
                 },
+                actions = {
+                    // Кнопка импорта заданий
+                    IconButton(onClick = onImportTasks) {
+                        Icon(
+                            Icons.Filled.CloudDownload,
+                            contentDescription = "Импорт заданий",
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    // Кнопка фильтра
+                    IconButton(onClick = onFilterTasks) {
+                        Icon(
+                            Icons.Filled.FilterList,
+                            contentDescription = "Фильтр",
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
                 )
@@ -58,23 +101,105 @@ fun PickTasksScreen(
         },
         containerColor = MaterialTheme.colorScheme.surface
     ) { paddingValues ->
-        if (tasks.isEmpty()) {
-            EmptyState(
-                message = "Нет доступных заданий на комплектацию.",
-                icon = Icons.Filled.PlaylistRemove,
-                modifier = Modifier.padding(paddingValues)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            // Фильтры по статусам
+            StatusFilterChips(
+                selectedStatus = selectedFilter,
+                onStatusSelected = { selectedFilter = it },
+                taskCounts = tasks.groupBy { it.status }.mapValues { it.value.size }
             )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(tasks, key = { it.id }) { task ->
-                    PickTaskItem(task = task, onOpenTask = { onOpenTask(task.id) })
+            
+            if (filteredTasks.isEmpty()) {
+                EmptyState(
+                    message = if (selectedFilter != null) {
+                        "Нет заданий со статусом \"${selectedFilter!!.toRussianString()}\""
+                    } else {
+                        "Нет доступных заданий на комплектацию"
+                    },
+                    icon = Icons.Filled.PlaylistRemove,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
+                    items(filteredTasks, key = { it.id }) { task ->
+                        AnimatedVisibility(
+                            visible = true,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            PickTaskItem(task = task, onOpenTask = { onOpenTask(task.id) })
+                        }
+                    }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun StatusFilterChips(
+    selectedStatus: TaskStatus?,
+    onStatusSelected: (TaskStatus?) -> Unit,
+    taskCounts: Map<TaskStatus, Int>
+) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Чип "Все"
+        item {
+            FilterChip(
+                selected = selectedStatus == null,
+                onClick = { onStatusSelected(null) },
+                label = { 
+                    Text(
+                        "Все (${taskCounts.values.sum()})",
+                        fontWeight = if (selectedStatus == null) FontWeight.Bold else FontWeight.Normal
+                    )
+                },
+                leadingIcon = if (selectedStatus == null) {
+                    { Icon(Icons.Filled.Done, contentDescription = null, Modifier.size(18.dp)) }
+                } else null
+            )
+        }
+        
+        // Чипы для каждого статуса
+        items(TaskStatus.values().toList()) { status ->
+            val count = taskCounts[status] ?: 0
+            if (count > 0) {
+                FilterChip(
+                    selected = selectedStatus == status,
+                    onClick = { onStatusSelected(status) },
+                    label = { 
+                        Text(
+                            "${status.toRussianString()} ($count)",
+                            fontWeight = if (selectedStatus == status) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            getStatusIcon(status),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = getStatusColor(status)
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = getStatusColor(status).copy(alpha = 0.2f)
+                    )
+                )
             }
         }
     }
@@ -88,6 +213,7 @@ fun PickTaskItem(
     val borderColor = MaterialTheme.colorScheme.outline.darker(0.8f)
     val statusColor = getStatusColor(task.status)
     val statusIcon = getStatusIcon(task.status)
+    val priorityColor = getPriorityColor(task.priority)
 
     Card(
         modifier = Modifier
@@ -100,40 +226,95 @@ fun PickTaskItem(
     ) {
         Column(
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(16.dp)
                 .fillMaxWidth()
         ) {
+            // Заголовок с приоритетом
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "Задание № ${task.id}",
-                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = statusIcon,
-                        contentDescription = "Статус: ${task.status.name.lowercase().replaceFirstChar { it.uppercase() }}",
-                        tint = statusColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Индикатор приоритета
+                    if (task.priority != Priority.NORMAL) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = priorityColor.copy(alpha = 0.2f),
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            Icon(
+                                getPriorityIcon(task.priority),
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .padding(2.dp),
+                                tint = priorityColor
+                            )
+                        }
+                    }
+                    
                     Text(
-                        text = task.status.name.lowercase().replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 15.sp),
-                        color = statusColor,
-                        fontWeight = FontWeight.Medium
+                        text = "Задание № ${task.id}",
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                
+                // Статус
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = statusColor.copy(alpha = 0.2f)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = statusIcon,
+                            contentDescription = null,
+                            tint = statusColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = task.status.toRussianString(),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = statusColor,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Информация о задании
+            if (task.customer != null) {
+                InfoRow(
+                    icon = Icons.Filled.Business,
+                    label = "Клиент:",
+                    value = task.customer,
+                    iconTint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
 
             InfoRow(icon = Icons.Filled.CalendarToday, label = "Дата:", value = task.date)
+
+            if (task.deadline != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                InfoRow(
+                    icon = Icons.Filled.Schedule,
+                    label = "Срок:",
+                    value = task.deadline,
+                    iconTint = if (task.priority == Priority.URGENT) priorityColor else null
+                )
+            }
 
             if (task.description.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
@@ -146,44 +327,85 @@ fun PickTaskItem(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            val totalItems = task.details.sumOf { it.quantityToPick }
-            val pickedItems = task.details.sumOf { it.picked }
-            val progress = if (totalItems > 0) pickedItems.toFloat() / totalItems.toFloat() else 0f
-
-            InfoRow(
-                icon = Icons.Filled.FormatListNumbered,
-                label = "Позиций к сборке:",
-                value = "${task.details.size} шт."
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            InfoRow(
-                icon = Icons.Filled.Inventory, // Или Icons.Filled.FactCheck
-                label = "Собрано/Всего:",
-                value = "$pickedItems / $totalItems шт."
-            )
-
-            if (totalItems > 0) {
-                Spacer(modifier = Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress =  progress,
-                    modifier = Modifier.fillMaxWidth().height(8.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceTint.copy(alpha = 0.3f),
-                )
+            // Статистика позиций
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    InfoRow(
+                        icon = Icons.Filled.FormatListNumbered,
+                        label = "Позиций:",
+                        value = "${task.completedPositions}/${task.positionsCount}"
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    InfoRow(
+                        icon = Icons.Filled.Inventory,
+                        label = "Товаров:",
+                        value = "${task.pickedItems}/${task.totalItems} шт"
+                    )
+                }
+                
+                // Круговой прогресс
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(60.dp)
+                ) {
+                    CircularProgressIndicator(
+                        progress = task.completionPercentage / 100f,
+                        modifier = Modifier.fillMaxSize(),
+                        strokeWidth = 6.dp,
+                        color = when {
+                            task.completionPercentage >= 100 -> Color(0xFF4CAF50)
+                            task.completionPercentage > 0 -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    )
+                    Text(
+                        text = "${task.completionPercentage.toInt()}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
+            Spacer(modifier = Modifier.height(12.dp))
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Кнопка или выделение для перехода
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                TextButton(onClick = onOpenTask) {
-                    Text("Открыть детали", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Filled.ChevronRight, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
+            // Кнопка действия
+            Button(
+                onClick = onOpenTask,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = when (task.status) {
+                        TaskStatus.COMPLETED -> MaterialTheme.colorScheme.surfaceVariant
+                        TaskStatus.CANCELLED -> MaterialTheme.colorScheme.errorContainer
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                )
+            ) {
+                Icon(
+                    when (task.status) {
+                        TaskStatus.COMPLETED -> Icons.Filled.Visibility
+                        TaskStatus.CANCELLED -> Icons.Filled.Restore
+                        else -> Icons.Filled.PlayArrow
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    when (task.status) {
+                        TaskStatus.COMPLETED -> "Просмотреть"
+                        TaskStatus.CANCELLED -> "Восстановить"
+                        TaskStatus.NEW -> "Начать сборку"
+                        TaskStatus.IN_PROGRESS -> "Продолжить сборку"
+                        TaskStatus.PAUSED -> "Возобновить"
+                        TaskStatus.VERIFIED -> "Детали"
+                    },
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -195,14 +417,15 @@ private fun InfoRow(
     label: String,
     value: String,
     singleLineValue: Boolean = true,
-    maxLinesValue: Int = 1
+    maxLinesValue: Int = 1,
+    iconTint: Color? = null
 ) {
     Row(verticalAlignment = if (singleLineValue) Alignment.CenterVertically else Alignment.Top) {
         Icon(
             imageVector = icon,
             contentDescription = label,
             modifier = Modifier.size(18.dp).padding(top = if(singleLineValue) 0.dp else 2.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+            tint = iconTint ?: MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
@@ -221,14 +444,15 @@ private fun InfoRow(
     }
 }
 
-
 @Composable
 fun getStatusColor(status: TaskStatus): Color {
     return when (status) {
         TaskStatus.NEW -> MaterialTheme.colorScheme.primary
-        TaskStatus.IN_PROGRESS -> MaterialTheme.colorScheme.tertiary // Можно выбрать другой цвет
-        TaskStatus.COMPLETED -> Color(0xFF388E3C) // Зеленый
-        TaskStatus.CANCELED -> MaterialTheme.colorScheme.error
+        TaskStatus.IN_PROGRESS -> Color(0xFFFF9800) // Оранжевый
+        TaskStatus.COMPLETED -> Color(0xFF4CAF50) // Зеленый
+        TaskStatus.CANCELLED -> MaterialTheme.colorScheme.error
+        TaskStatus.PAUSED -> Color(0xFF9E9E9E) // Серый
+        TaskStatus.VERIFIED -> Color(0xFF2196F3) // Синий
     }
 }
 
@@ -236,18 +460,37 @@ fun getStatusColor(status: TaskStatus): Color {
 fun getStatusIcon(status: TaskStatus): ImageVector {
     return when (status) {
         TaskStatus.NEW -> Icons.Filled.FiberNew
-        TaskStatus.IN_PROGRESS -> Icons.Filled.Autorenew // или DonutLarge, Pending
+        TaskStatus.IN_PROGRESS -> Icons.Filled.Autorenew
         TaskStatus.COMPLETED -> Icons.Filled.CheckCircle
-        TaskStatus.CANCELED -> Icons.Filled.Cancel
+        TaskStatus.CANCELLED -> Icons.Filled.Cancel
+        TaskStatus.PAUSED -> Icons.Filled.Pause
+        TaskStatus.VERIFIED -> Icons.Filled.VerifiedUser
+    }
+}
+
+@Composable
+fun getPriorityColor(priority: Priority): Color {
+    return when (priority) {
+        Priority.LOW -> Color(0xFF03A9F4) // Голубой
+        Priority.NORMAL -> MaterialTheme.colorScheme.onSurfaceVariant
+        Priority.HIGH -> Color(0xFFFF9800) // Оранжевый
+        Priority.URGENT -> Color(0xFFF44336) // Красный
+    }
+}
+
+fun getPriorityIcon(priority: Priority): ImageVector {
+    return when (priority) {
+        Priority.LOW -> Icons.Filled.ArrowDownward
+        Priority.NORMAL -> Icons.Filled.Remove
+        Priority.HIGH -> Icons.Filled.ArrowUpward
+        Priority.URGENT -> Icons.Filled.PriorityHigh
     }
 }
 
 @Composable
 fun EmptyState(message: String, icon: ImageVector, modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = modifier.padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -267,58 +510,11 @@ fun EmptyState(message: String, icon: ImageVector, modifier: Modifier = Modifier
     }
 }
 
-// Утилита для затемнения цвета (если она не в общем файле)
-private fun Color.darker(factor: Float = 0.8f): Color {
-    return Color(
-        red = this.red * factor,
-        green = this.green * factor,
-        blue = this.blue * factor,
-        alpha = this.alpha
-    )
-}
-
-
-// ----- Preview -----
-val previewPickTasks = listOf(
-    PickTask("101", "2024-07-28", "Сборка для клиента A", TaskStatus.NEW, listOf(
-        // ... детали ...
-    )),
-    PickTask("102", "2024-07-29", "Срочная комплектация для VIP", TaskStatus.IN_PROGRESS, listOf(
-        // ... детали ...
-    )),
-    PickTask("103", "2024-07-27", "", TaskStatus.COMPLETED, listOf(
-        // ... детали ...
-    )),
-    PickTask("104", "2024-07-26", "Отменено клиентом", TaskStatus.CANCELED, listOf(
-        // ... детали ...
-    ))
-)
-// Добавьте данные для PickDetail, если хотите видеть прогресс в превью
-private fun generatePreviewTasks(): List<PickTask> {
-    val details1 = listOf(
-        com.example.myprinterapp.data.PickDetail(1, "PART-001", "Деталь A1", 5, "S69", 2),
-        com.example.myprinterapp.data.PickDetail(2, "PART-002", "Деталь A2", 3, "S70", 3)
-    )
-    val details2 = listOf(
-        com.example.myprinterapp.data.PickDetail(1, "PART-101", "Деталь B1", 10, "S01", 1)
-    )
-    val details3 = listOf(
-        com.example.myprinterapp.data.PickDetail(1, "PART-201", "Деталь C1", 2, "A05", 2)
-    )
-
-    return listOf(
-        PickTask("T-2024-001", "10.12.2024", "Сборка для Клиента А", TaskStatus.NEW, details1),
-        PickTask("T-2024-002", "11.12.2024", "Плановая сборка компонентов", TaskStatus.IN_PROGRESS, details2),
-        PickTask("T-2024-003", "09.12.2024", "Заказ отменен", TaskStatus.CANCELED, details2.map { it.copy(quantityToPick = 5, picked = 0) }),
-        PickTask("T-2024-004", "08.12.2024", "Полностью укомплектовано", TaskStatus.COMPLETED, details3)
-    )
-}
-
-
+// Preview функции
 @Preview(showBackground = true, name = "Pick Tasks List")
 @Composable
 fun PickTasksScreenPreview() {
-    MyPrinterAppTheme { // Оберните в вашу тему
+    MyPrinterAppTheme {
         PickTasksScreen(
             tasks = generatePreviewTasks(),
             onOpenTask = {},
@@ -327,39 +523,24 @@ fun PickTasksScreenPreview() {
     }
 }
 
-@Preview(showBackground = true, name = "Pick Tasks List - Dark Theme")
-@Composable
-fun PickTasksScreenDarkPreview() {
-    MyPrinterAppTheme(darkTheme = true) { // Оберните в вашу тему
-        PickTasksScreen(
-            tasks = generatePreviewTasks(),
-            onOpenTask = {},
-            onBack = {}
-        )
-    }
-}
+private fun generatePreviewTasks(): List<PickTask> {
+    val details1 = listOf(
+        PickDetail(1, "PART-001", "Деталь A1", 5, "S69", 2),
+        PickDetail(2, "PART-002", "Деталь A2", 3, "S70", 3)
+    )
+    val details2 = listOf(
+        PickDetail(3, "PART-101", "Деталь B1", 10, "S01", 5),
+        PickDetail(4, "PART-102", "Деталь B2", 8, "S02", 0)
+    )
 
-@Preview(showBackground = true, name = "Pick Tasks List - Empty")
-@Composable
-fun PickTasksScreenEmptyPreview() {
-    MyPrinterAppTheme {
-        PickTasksScreen(
-            tasks = emptyList(),
-            onOpenTask = {},
-            onBack = {}
-        )
-    }
-}
-
-@Preview(showBackground = true, name = "Single Pick Task Item")
-@Composable
-fun PickTaskItemPreview() {
-    MyPrinterAppTheme {
-        Surface(modifier = Modifier.padding(8.dp)) {
-            PickTaskItem(
-                task = generatePreviewTasks().first {it.status == TaskStatus.IN_PROGRESS },
-                onOpenTask = {}
-            )
-        }
-    }
+    return listOf(
+        PickTask("T-2024-001", "23.05.2025", "Срочная сборка для VIP клиента", 
+            TaskStatus.NEW, details1, Priority.URGENT, "ООО Ромашка", "24.05.2025"),
+        PickTask("T-2024-002", "23.05.2025", "Плановая комплектация", 
+            TaskStatus.IN_PROGRESS, details2, Priority.NORMAL, "ИП Петров"),
+        PickTask("T-2024-003", "22.05.2025", "Выполнено вчера", 
+            TaskStatus.COMPLETED, details1.map { it.copy(picked = it.quantityToPick) }, Priority.HIGH),
+        PickTask("T-2024-004", "21.05.2025", "Отменен клиентом", 
+            TaskStatus.CANCELLED, details2, Priority.LOW, "ЗАО Техно")
+    )
 }
