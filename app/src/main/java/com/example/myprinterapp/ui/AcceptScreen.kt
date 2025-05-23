@@ -12,6 +12,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +44,12 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myprinterapp.viewmodel.AcceptViewModel
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalTextStyle
 
 // Утилита для затемнения цвета (простой вариант)
 private fun Color.darker(factor: Float = 0.8f): Color {
@@ -124,21 +132,26 @@ fun AcceptScreen(
                 actions = {
                     // Кнопка истории/редактирования последней операции
                     if (lastOperations.isNotEmpty()) {
-                        IconButton(
-                            onClick = { viewModel.openLastOperation() },
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            BadgedBox(
-                                badge = {
-                                    Badge {
-                                        Text(lastOperations.size.toString())
-                                    }
-                                }
+                        Box(modifier = Modifier.padding(end = 8.dp)) {
+                            Button(
+                                onClick = { viewModel.openLastOperation() },
+                                modifier = Modifier.height(40.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ),
+                                contentPadding = PaddingValues(horizontal = 16.dp)
                             ) {
                                 Icon(
                                     Icons.Filled.History,
                                     contentDescription = "Последние операции",
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "История (${lastOperations.size})",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
@@ -387,14 +400,16 @@ fun AcceptScreen(
     }
 
     // Диалог редактирования
-    if (showEditDialog && editingRecord != null) {
-        EditAcceptanceDialog(
-            record = editingRecord!!,
-            onDismiss = { viewModel.closeEditDialog() },
-            onConfirm = { qty, cell ->
-                viewModel.updateRecord(editingRecord!!.id, qty, cell)
-            }
-        )
+    editingRecord?.let { record ->
+        if (showEditDialog) {
+            EditAcceptanceDialog(
+                record = record,
+                onDismiss = { viewModel.closeEditDialog() },
+                onConfirm = { qty, cell ->
+                    viewModel.updateRecord(record.id, qty, cell)
+                }
+            )
+        }
     }
 }
 
@@ -508,16 +523,20 @@ fun LargeInputTextField(
         onValueChange = onValueChange,
         modifier = modifier.height(fieldHeight).fillMaxWidth(),
         label = {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                if (value.isEmpty()) {
+            if (value.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text(label, fontSize = labelFontSize, textAlign = labelTextAlign)
-                } else {
-                    Text(label, fontSize = MaterialTheme.typography.bodySmall.fontSize)
                 }
+            } else {
+                Text(label, fontSize = MaterialTheme.typography.bodySmall.fontSize)
             }
         },
         leadingIcon = { Icon(icon, label, modifier = Modifier.size(30.dp)) },
-        textStyle = TextStyle(fontSize = valueFontSize, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center),
+        textStyle = TextStyle(
+            fontSize = valueFontSize,
+            fontWeight = FontWeight.ExtraBold,
+            textAlign = TextAlign.Center
+        ),
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
         singleLine = true,
@@ -526,6 +545,7 @@ fun LargeInputTextField(
         colors = TextFieldDefaults.outlinedTextFieldColors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = borderColor,
-        )
+        ),
+
     )
 }
