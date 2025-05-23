@@ -1,14 +1,12 @@
 package com.example.myprinterapp.printer
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Typeface
+import android.graphics.*
 import android.util.Log
 import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.example.myprinterapp.data.db.PrintLogEntry
 import com.example.myprinterapp.data.repo.PrintLogRepository
 import net.posprinter.TSPLConst
@@ -69,25 +67,24 @@ class PrinterService @Inject constructor(
             _connectionState.value = ConnectionState.CONNECTING
             Log.d(TAG, "Attempting to connect to printer with MAC: $macAddress")
 
-            // Используем таймаут для подключения
             val connected = withTimeout(CONNECTION_TIMEOUT_MS) {
                 connectionManager.connectAsync(macAddress)
             }
-
+            
             if (connected) {
                 val deviceConnection = connectionManager.getConnection()
                 if (deviceConnection != null) {
                     tsplPrinter = TSPLPrinter(deviceConnection)
                     _connectionState.value = ConnectionState.CONNECTED
                     Log.i(TAG, "Successfully connected to printer: $macAddress")
-
+                    
                     // Тестовый звуковой сигнал для подтверждения подключения
                     try {
                         tsplPrinter?.sound(2, 100)
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to play connection sound", e)
                     }
-
+                    
                     Result.success(Unit)
                 } else {
                     _connectionState.value = ConnectionState.DISCONNECTED
@@ -154,7 +151,7 @@ class PrinterService @Inject constructor(
     }
 
     /**
-     * Создание изображения этикетки по макету
+     * Создание изображения этикетки по новому макету
      */
     private fun createLabelBitmap(data: LabelData): Bitmap {
         val bitmap = Bitmap.createBitmap(LABEL_WIDTH_PX, LABEL_HEIGHT_PX, Bitmap.Config.ARGB_8888)
@@ -164,80 +161,135 @@ class PrinterService @Inject constructor(
         canvas.drawColor(Color.WHITE)
 
         // Настройки отступов
-        val margin = 12f
-        val lineSpacing = 4f
+        val margin = 10f
+        val lineSpacing = 3f
 
-        // Шрифты
-        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        // Шрифты (приближенные к макету)
+        val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            textSize = 24f
+            textSize = 18f
             typeface = Typeface.create("Arial", Typeface.BOLD)
         }
 
         val normalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            textSize = 20f
+            textSize = 16f
             typeface = Typeface.create("Arial", Typeface.NORMAL)
         }
 
         val smallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            textSize = 16f
+            textSize = 14f
             typeface = Typeface.create("Arial", Typeface.NORMAL)
         }
 
-        var yPos = margin + 24f
+        val boldPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 20f
+            typeface = Typeface.create("Arial", Typeface.BOLD)
+        }
 
-        // 1. Номер детали (жирным)
-        canvas.drawText("Part: ${data.partNumber}", margin, yPos, titlePaint)
-        yPos += titlePaint.textSize + lineSpacing
+        // Рамка вокруг этикетки
+        val borderPaint = Paint().apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
+        canvas.drawRect(1f, 1f, LABEL_WIDTH_PX - 1f, LABEL_HEIGHT_PX - 1f, borderPaint)
 
-        // 2. Название детали
+        var yPos = margin + 16f
+
+        // 1. Заголовок "ПРИЕМКА" по центру
+        val headerText = "ПРИЕМКА"
+        val headerWidth = headerPaint.measureText(headerText)
+        canvas.drawText(headerText, (LABEL_WIDTH_PX - headerWidth) / 2, yPos, headerPaint)
+        yPos += headerPaint.textSize + lineSpacing + 2
+
+        // Горизонтальная линия после заголовка
+        canvas.drawLine(margin, yPos, LABEL_WIDTH_PX - margin, yPos, borderPaint)
+        yPos += 8f
+
+        // 2. Номер заказа и маршрутки
+        canvas.drawText("Заказ: ${data.orderNumber}", margin, yPos, normalPaint)
+        yPos += normalPaint.textSize + lineSpacing
+
+        // Извлекаем номер маршрутки из QR кода
+        val routeCardNumber = data.qrData.split('=').firstOrNull() ?: ""
+        canvas.drawText("М/К: $routeCardNumber", margin, yPos, normalPaint)
+        yPos += normalPaint.textSize + lineSpacing + 4
+
+        // 3. Номер детали (крупным шрифтом)
+        canvas.drawText("Деталь: ${data.partNumber}", margin, yPos, boldPaint)
+        yPos += boldPaint.textSize + lineSpacing
+
+        // 4. Название детали (с переносом если длинное)
         val descLines = wrapText(data.description, normalPaint, LABEL_WIDTH_PX - margin * 2 - 140f)
         descLines.forEach { line ->
             canvas.drawText(line, margin, yPos, normalPaint)
             yPos += normalPaint.textSize + lineSpacing
         }
 
-        // 3. Номер заказа
-        yPos += lineSpacing
-        canvas.drawText("Order: ${data.orderNumber}", margin, yPos, normalPaint)
-        yPos += normalPaint.textSize + lineSpacing * 2
-
-        // 4. Ячейка хранения (внизу слева)
-        val bottomY = LABEL_HEIGHT_PX - margin - 10f
-        canvas.drawText("Loc: ${data.location}", margin, bottomY, smallPaint)
-
-        // 5. QR-код (справа)
-        val qrSize = 120
+        // 5. QR-код справа
+        val qrSize = 110
         val qrX = LABEL_WIDTH_PX - qrSize - margin.toInt()
-        val qrY = margin.toInt()
+        val qrY = 65
 
-        val qrBitmap = generateQRCode(data.qrData, qrSize)
+        // Генерируем QR с поддержкой кириллицы
+        val qrBitmap = generateQRCodeWithCyrillic(data.qrData, qrSize)
         canvas.drawBitmap(qrBitmap, qrX.toFloat(), qrY.toFloat(), null)
 
-        // 6. Количество (под QR если есть)
+        // 6. Количество (справа от названия, под QR)
         if (data.quantity != null && data.quantity > 0) {
-            val qtyText = "Qty: ${data.quantity}"
-            val qtyX = qrX + (qrSize - smallPaint.measureText(qtyText)) / 2
-            val qtyY = qrY + qrSize + 16f
-            canvas.drawText(qtyText, qtyX, qtyY, smallPaint)
+            val qtyText = "Кол-во: ${data.quantity} шт"
+            val qtyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.BLACK
+                textSize = 18f
+                typeface = Typeface.create("Arial", Typeface.BOLD)
+            }
+            val qtyX = qrX + (qrSize - qtyPaint.measureText(qtyText)) / 2
+            val qtyY = qrY + qrSize + 12f
+            canvas.drawText(qtyText, qtyX, qtyY, qtyPaint)
+        }
+
+        // 7. Внизу: ячейка и дата приемки
+        val bottomY1 = LABEL_HEIGHT_PX - margin - 20f
+        val bottomY2 = LABEL_HEIGHT_PX - margin - 5f
+
+        // Ячейка слева
+        val cellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 18f
+            typeface = Typeface.create("Arial", Typeface.BOLD)
+        }
+        canvas.drawText("Ячейка: ${data.location}", margin, bottomY1, cellPaint)
+
+        // Дата приемки справа
+        if (data.acceptanceDate != null) {
+            val dateText = "Дата: ${data.acceptanceDate}"
+            val dateWidth = smallPaint.measureText(dateText)
+            canvas.drawText(dateText, LABEL_WIDTH_PX - dateWidth - margin, bottomY2, smallPaint)
         }
 
         return bitmap
     }
 
     /**
-     * Генерация QR-кода с использованием ZXing
+     * Генерация QR-кода с поддержкой кириллицы
      */
-    private fun generateQRCode(data: String, size: Int): Bitmap {
+    private fun generateQRCodeWithCyrillic(data: String, size: Int): Bitmap {
         return try {
             val writer = QRCodeWriter()
+            val hints = HashMap<EncodeHintType, Any>()
+            hints[EncodeHintType.CHARACTER_SET] = "UTF-8"
+            hints[EncodeHintType.ERROR_CORRECTION] = ErrorCorrectionLevel.M
+            hints[EncodeHintType.MARGIN] = 1
+            
             val bitMatrix = writer.encode(
                 data,
                 BarcodeFormat.QR_CODE,
                 size,
-                size
+                size,
+                hints
             )
 
             val width = bitMatrix.width
@@ -256,7 +308,6 @@ class PrinterService @Inject constructor(
             bitmap
         } catch (e: Exception) {
             Log.e(TAG, "Error generating QR code", e)
-            // Возвращаем пустой битмап в случае ошибки
             Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).apply {
                 eraseColor(Color.WHITE)
             }
@@ -287,7 +338,7 @@ class PrinterService @Inject constructor(
             lines.add(currentLine)
         }
 
-        return lines
+        return lines.take(2) // Максимум 2 строки для названия
     }
 
     /**
@@ -295,44 +346,27 @@ class PrinterService @Inject constructor(
      */
     private fun printBitmap(bitmap: Bitmap) {
         val printer = tsplPrinter ?: throw PrinterException("Принтер не инициализирован")
-
+        
         try {
             Log.d(TAG, "Starting print job")
-
-            // Очистка буфера
+            
+            // Настройки принтера
             printer.cls()
-
-            // Установка размера этикетки
             printer.sizeMm(LABEL_WIDTH_MM, LABEL_HEIGHT_MM)
-
-            // Установка зазора между этикетками
             printer.gapMm(2.0, 0.0)
-
-            // Скорость печати
             printer.speed(2.0)
-
-            // Плотность печати
             printer.density(8)
-
-            // Направление печати
             printer.direction(TSPLConst.DIRECTION_FORWARD)
-
-            // Опорная точка
             printer.reference(0, 0)
-
-            // Очистка буфера еще раз перед отправкой изображения
             printer.cls()
-
+            
             // Отправка изображения
-            // Используем правильный режим для TSPL
             printer.bitmap(0, 0, TSPLConst.BMP_MODE_OVERWRITE, bitmap.width, bitmap)
-
-            // Печать одной копии
+            
+            // Печать
             printer.print(1)
-
-            // Подтверждающий звуковой сигнал
             printer.sound(1, 50)
-
+            
             Log.d(TAG, "Print job sent successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Print bitmap error", e)
@@ -365,7 +399,6 @@ class PrinterService @Inject constructor(
             return Result.failure(PrinterException("Принтер не подключен"))
         }
 
-        // TODO: Реализовать проверку статуса через TSPL команды
         return Result.success(PrinterStatus.READY)
     }
 }
@@ -380,7 +413,8 @@ data class LabelData(
     val location: String,
     val quantity: Int? = null,
     val qrData: String,
-    val labelType: String = "Общая"
+    val labelType: String = "Общая",
+    val acceptanceDate: String? = null // Дата приемки
 )
 
 /**
