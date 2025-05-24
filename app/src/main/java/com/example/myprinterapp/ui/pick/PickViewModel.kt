@@ -241,68 +241,68 @@ class PickViewModel @Inject constructor() : ViewModel() {
             PickTask(
                 id = "ZADANIE-001",
                 date = "2025-05-30",
-                description = "Сборка для клиента 'ООО Ромашка' по заказу 2023/023",
+                description = "Изготовление деталей коробки передач для заказа 2023/023",
                 status = TaskStatus.NEW,
                 details = listOf(
-                    PickDetail(1, "PN-APPLE-01", "Яблоки красные", 10, "A01", 0),
-                    PickDetail(2, "PN-ORANGE-02", "Апельсины сладкие", 5, "A02", 0),
-                    PickDetail(3, "PN-BANANA-03", "Бананы спелые", 12, "B05", 0)
+                    PickDetail(1, "НЗ.КШ.040.25.001", "Вал приводной", 10, "A45", 0),
+                    PickDetail(2, "НЗ.КШ.040.25.002", "Втулка направляющая", 5, "B12", 0),
+                    PickDetail(3, "НЗ.КШ.040.25.003", "Шестерня коническая", 12, "C33", 0)
                 ),
                 priority = Priority.URGENT,
-                customer = "ООО Ромашка",
+                customer = "ПАО КАМАЗ",
                 deadline = "2025-06-01"
             ),
             PickTask(
                 id = "ZADANIE-002",
                 date = "2025-05-29",
-                description = "Срочная сборка для 'ИП Васильков' заказ 2024/156",
+                description = "Комплектующие для двигателя заказ 2024/156",
                 status = TaskStatus.IN_PROGRESS,
                 details = listOf(
-                    PickDetail(4, "PN-GRAPE-01", "Виноград Кишмиш", 20, "C15", 5),
-                    PickDetail(5, "PN-PEAR-04", "Груши Конференция", 8, "A11", 2)
+                    PickDetail(4, "НЗ.ДВ.120.18.001", "Поршень цилиндра", 20, "D15", 5),
+                    PickDetail(5, "НЗ.ДВ.120.18.002", "Кольцо поршневое", 8, "A11", 2)
                 ),
                 priority = Priority.HIGH,
-                customer = "ИП Васильков",
+                customer = "ОАО Автодизель",
                 deadline = "2025-05-31"
             ),
             PickTask(
                 id = "ZADANIE-003",
                 date = "2025-05-28",
-                description = "Завершенная сборка заказа 2024/078",
+                description = "Завершенная партия для заказа 2024/078",
                 status = TaskStatus.COMPLETED,
                 details = listOf(
-                    PickDetail(6, "PN-WATERMELON-01", "Арбуз Астраханский", 1, "D99", 1)
+                    PickDetail(6, "НЗ.РМ.090.12.001", "Рычаг тормозной", 1, "F99", 1)
                 ),
                 priority = Priority.NORMAL,
-                customer = "ООО Фрукты Юга"
+                customer = "ГАЗ GROUP"
             ),
             PickTask(
                 id = "ZADANIE-004",
                 date = "2025-05-31",
-                description = "Большая комплектация заказа 2025/001 с множеством позиций",
+                description = "Крупная партия заказа 2025/001 - детали подвески",
                 status = TaskStatus.NEW,
                 details = listOf(
-                    PickDetail(7, "PN-CARROT-01", "Морковь молодая", 15, "A12", 0),
-                    PickDetail(8, "PN-POTATO-01", "Картофель белый", 25, "B05", 3),
-                    PickDetail(9, "PN-ONION-01", "Лук репчатый", 8, "A08", 0),
-                    PickDetail(10, "PN-TOMATO-01", "Помидоры красные", 12, "C15", 7),
-                    PickDetail(11, "PN-CUCUMBER-01", "Огурцы свежие", 18, "A20", 0)
+                    PickDetail(7, "НЗ.ПД.055.30.001", "Амортизатор передний", 15, "E12", 0),
+                    PickDetail(8, "НЗ.ПД.055.30.002", "Пружина подвески", 25, "E05", 3),
+                    PickDetail(9, "НЗ.ПД.055.30.003", "Сайлентблок рычага", 8, "F08", 0),
+                    PickDetail(10, "НЗ.ПД.055.30.004", "Шарнир шаровой", 12, "G15", 7),
+                    PickDetail(11, "НЗ.ПД.055.30.005", "Стабилизатор поперечной устойчивости", 18, "H20", 0)
                 ),
                 priority = Priority.NORMAL,
-                customer = "Сеть магазинов 'Овощной рай'",
+                customer = "УАЗ",
                 deadline = "2025-06-05"
             ),
             PickTask(
                 id = "ZADANIE-005",
                 date = "2025-05-27",
-                description = "Приостановленная сборка заказа 2024/299",
+                description = "Приостановленное производство заказа 2024/299",
                 status = TaskStatus.PAUSED,
                 details = listOf(
-                    PickDetail(12, "PN-CABBAGE-01", "Капуста белокочанная", 20, "B15", 8),
-                    PickDetail(13, "PN-BEETROOT-01", "Свекла столовая", 10, "A25", 0)
+                    PickDetail(12, "НЗ.КП.075.22.001", "Корпус коробки передач", 20, "B15", 8),
+                    PickDetail(13, "НЗ.КП.075.22.002", "Синхронизатор переключения", 10, "C25", 0)
                 ),
                 priority = Priority.LOW,
-                customer = "ИП Овощторг",
+                customer = "ЛАДА",
                 deadline = "2025-06-10"
             )
         ).also {
