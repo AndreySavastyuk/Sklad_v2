@@ -1,25 +1,17 @@
 package com.example.myprinterapp.ui.pick
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import com.example.myprinterapp.data.PickDetail
 import com.example.myprinterapp.data.PickTask
 import com.example.myprinterapp.data.TaskStatus
-import com.example.myprinterapp.data.Priority
-import com.example.myprinterapp.printer.PrinterService
-import com.example.myprinterapp.printer.LabelData
-import com.example.myprinterapp.printer.LabelType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
 @HiltViewModel
-class PickViewModel @Inject constructor(
-    private val printerService: PrinterService
-) : ViewModel() {
+class PickViewModel @Inject constructor() : ViewModel() {
 
     // ----- Состояние для списка всех заданий -----
     private val _tasks = MutableStateFlow<List<PickTask>>(emptyList())
@@ -36,47 +28,63 @@ class PickViewModel @Inject constructor(
     // ----- Состояние для элемента, ожидающего сканирования -----
     private val _itemAwaitingScan = MutableStateFlow<PickDetail?>(null)
 
-    // ----- Состояние для последнего отсканированного кода -----
+    // ----- Состояние для последнего отсканированного кода (общее) -----
+    private val _scannedCode = MutableStateFlow<String?>(null)
+    val scannedCode: StateFlow<String?> = _scannedCode.asStateFlow()
+
     private val _lastScannedCode = MutableStateFlow<String?>(null)
     val lastScannedCode: StateFlow<String?> = _lastScannedCode
 
-    // ----- Состояние печати -----
-    private val _printingState = MutableStateFlow<PrintingState>(PrintingState.Idle)
-    val printingState: StateFlow<PrintingState> = _printingState.asStateFlow()
-
     init {
         loadTasks()
-        println("Debug: PickViewModel initialized and tasks loading initiated.")
+        println("Debug: PickViewModel initialized")
     }
 
     private fun loadTasks() {
-        _tasks.value = loadPickTasksExample().also {
-            println("Debug: Loaded ${it.size} tasks into ViewModel")
+        val loadedTasks = loadPickTasksExample()
+        _tasks.value = loadedTasks
+        println("Debug: Loaded ${loadedTasks.size} tasks into ViewModel")
+        loadedTasks.forEachIndexed { index, task ->
+            println("Debug: Task $index: id=${task.id}, details_count=${task.details.size}")
+            task.details.forEachIndexed { detailIndex, detail ->
+                println("Debug:   Detail $detailIndex: ${detail.partNumber} - ${detail.partName}")
+            }
         }
     }
 
     fun openTask(taskId: String) {
-        _currentTask.value = _tasks.value.firstOrNull { it.id == taskId }
-        if (_currentTask.value == null) {
-            println("Warning: Task with ID $taskId not found.")
+        println("Debug: openTask called with taskId: $taskId")
+        val foundTask = _tasks.value.firstOrNull { it.id == taskId }
+        _currentTask.value = foundTask
+
+        if (foundTask == null) {
+            println("Warning: Task with ID $taskId not found in ${_tasks.value.map { it.id }}")
         } else {
-            println("Debug: Opened task ID ${taskId}")
+            println("Debug: Opened task ID ${foundTask.id} with ${foundTask.details.size} details")
+            foundTask.details.forEach { detail ->
+                println("Debug: Detail: ${detail.id} - ${detail.partNumber} - ${detail.partName}")
+            }
         }
     }
 
     fun requestShowQtyDialog(detail: PickDetail) {
+        println("Debug: requestShowQtyDialog for detail: ${detail.partNumber}")
         _showQtyDialogFor.value = detail
     }
 
     fun dismissQtyDialog() {
+        println("Debug: dismissQtyDialog")
         _showQtyDialogFor.value = null
     }
 
     fun submitPickedQuantity(detailId: Int, pickedQuantity: Int) {
+        println("Debug: submitPickedQuantity - detailId: $detailId, quantity: $pickedQuantity")
+
         _currentTask.value?.let { task ->
             val updatedDetails = task.details.map { detail ->
                 if (detail.id == detailId) {
                     val newPickedQty = pickedQuantity.coerceIn(0, detail.quantityToPick)
+                    println("Debug: Updating detail ${detail.partNumber}: picked ${detail.picked} -> $newPickedQty")
                     detail.copy(picked = newPickedQty)
                 } else {
                     detail
@@ -85,14 +93,15 @@ class PickViewModel @Inject constructor(
             val updatedTask = task.copy(details = updatedDetails)
             _currentTask.value = updatedTask
 
+            // Обновляем задание в общем списке
             _tasks.value = _tasks.value.map {
                 if (it.id == updatedTask.id) updatedTask else it
             }
 
-            // Обновляем статус задания
-            checkAndUpdateTaskStatus(updatedTask)
-
-            println("Debug: Submitted quantity $pickedQuantity for detail ID $detailId. Task ID: ${task.id}")
+            println("Debug: Updated task ${task.id}, new picked quantities:")
+            updatedDetails.forEach { detail ->
+                println("Debug:   ${detail.partNumber}: ${detail.picked}/${detail.quantityToPick}")
+            }
         }
         dismissQtyDialog()
     }
@@ -104,6 +113,7 @@ class PickViewModel @Inject constructor(
     }
 
     fun handleScannedBarcodeForItem(scannedBarcode: String) {
+        println("Debug: handleScannedBarcodeForItem - barcode: $scannedBarcode")
         val targetItem = _itemAwaitingScan.value
         if (targetItem != null && targetItem.partNumber == scannedBarcode) {
             println("Debug: Scanned barcode $scannedBarcode MATCHES expected item ${targetItem.partNumber}")
@@ -111,7 +121,7 @@ class PickViewModel @Inject constructor(
         } else if (targetItem != null) {
             println("Error: Scanned barcode $scannedBarcode MISMATCH. Expected ${targetItem.partNumber}")
         } else {
-            println("Warning: Scanned barcode $scannedBarcode received, but no item was awaiting scan. Trying general processing.")
+            println("Debug: No item awaiting scan, trying general processing")
             onBarcodeScannedGeneral(scannedBarcode)
         }
         _itemAwaitingScan.value = null
@@ -119,6 +129,7 @@ class PickViewModel @Inject constructor(
 
     fun onBarcodeScannedGeneral(code: String) {
         println("Debug: General barcode scanned: $code")
+        _lastScannedCode.value = code
 
         val partNumberFromCode = extractPartNumberFromGenericScan(code)
 
@@ -127,135 +138,69 @@ class PickViewModel @Inject constructor(
                 println("Debug: Found detail by general scan: ${foundDetail.partNumber}")
                 requestShowQtyDialog(foundDetail)
             } ?: run {
-                println("Warning: Detail with part number $partNumberFromCode not found in current task after general scan.")
+                println("Warning: Detail with part number $partNumberFromCode not found in current task")
             }
         } else {
             println("Warning: Could not extract part number from general scan: $code")
         }
     }
 
-    /**
-     * Печать этикетки для комплектации
-     */
-    fun printPickingLabel(detail: PickDetail) {
-        _currentTask.value?.let { task ->
-            if (detail.picked > 0) {
-                viewModelScope.launch {
-                    _printingState.value = PrintingState.Printing
-
-                    val labelData = LabelData(
-                        partNumber = detail.partNumber,
-                        description = detail.partName,
-                        orderNumber = "Задание №${task.id}",
-                        location = detail.location,
-                        quantity = detail.picked,
-                        qrData = generatePickingQrData(detail, task),
-                        labelType = "Комплектация"
-                    )
-
-                    printerService.printLabel(labelData, LabelType.PICKING_57x40)
-                        .onSuccess {
-                            _printingState.value = PrintingState.Success("Этикетка напечатана")
-                            println("Debug: Label printed successfully for ${detail.partNumber}")
-                        }
-                        .onFailure { error ->
-                            _printingState.value = PrintingState.Error(error.message ?: "Ошибка печати")
-                            println("Error: Failed to print label - ${error.message}")
-                        }
-                }
-            } else {
-                _printingState.value = PrintingState.Error("Нет собранных товаров для печати")
-            }
-        }
-    }
-
-    /**
-     * Очистка состояния печати
-     */
-    fun clearPrintingState() {
-        _printingState.value = PrintingState.Idle
-    }
-
-    /**
-     * Генерация QR-кода для комплектации
-     */
-    private fun generatePickingQrData(detail: PickDetail, task: PickTask): String {
-        return "${task.id}=${detail.partNumber}=${detail.picked}=${detail.location}"
-    }
-
     private fun extractPartNumberFromGenericScan(scannedCode: String): String? {
-        if (scannedCode.isNotBlank()) {
-            return scannedCode
-        }
-        return null
-    }
-
-    private fun checkAndUpdateTaskStatus(task: PickTask) {
-        val allDetailsPicked = task.details.all { it.picked >= it.quantityToPick }
-        if (allDetailsPicked && task.status != TaskStatus.COMPLETED) {
-            val updatedTask = task.copy(status = TaskStatus.COMPLETED)
-            _currentTask.value = updatedTask
-            _tasks.value = _tasks.value.map {
-                if (it.id == updatedTask.id) updatedTask else it
-            }
-            println("Debug: Task ${task.id} status updated to COMPLETED.")
-        }
+        return if (scannedCode.isNotBlank()) scannedCode else null
     }
 
     private fun loadPickTasksExample(): List<PickTask> {
-        val random = kotlin.random.Random(42)
-
-        fun randomCell(): String {
-            val letter = ('A'..'Z').random(random)
-            val number = (1..30).random(random).toString().padStart(2, '0')
-            return "$letter$number"
-        }
-
-        fun randomDate2025(): String {
-            val month = (1..12).random(random)
-            val day = when(month) {
-                2 -> (1..28).random(random)
-                4, 6, 9, 11 -> (1..30).random(random)
-                else -> (1..31).random(random)
-            }
-            return "2025-%02d-%02d".format(month, day)
-        }
+        println("Debug: Creating example tasks...")
 
         return listOf(
             PickTask(
-                id = "001",
-                date = randomDate2025(),
-                description = "Сборка для ООО Техмаш",
+                id = "ZADANIE-001",
+                date = "2024-07-30",
+                description = "Сборка для клиента 'ООО Ромашка'",
                 status = TaskStatus.NEW,
-                customer = "ООО Техмаш",
                 details = listOf(
-                    PickDetail(1, "НЗ.КШ.040.25.001-04", "Втулка", 5, randomCell()),
-                    PickDetail(2, "НЗ.КШ.040.25.002-01", "Корпус", 2, randomCell())
+                    PickDetail(1, "PN-APPLE-01", "Яблоки красные", 10, "Склад A, Секция 1, Ячейка 01", 0),
+                    PickDetail(2, "PN-ORANGE-02", "Апельсины сладкие", 5, "Склад A, Секция 1, Ячейка 02", 0),
+                    PickDetail(3, "PN-BANANA-03", "Бананы спелые", 12, "Склад B, Секция 2, Ячейка 05", 0)
                 )
             ),
             PickTask(
-                id = "002",
-                date = randomDate2025(),
-                description = "Заказ 2024/005",
-                status = TaskStatus.NEW,
-                customer = "ИП Петров А.С.",
+                id = "ZADANIE-002",
+                date = "2024-07-29",
+                description = "Срочная сборка для 'ИП Васильков'",
+                status = TaskStatus.IN_PROGRESS,
                 details = listOf(
-                    PickDetail(3, "НЗ.КШ.065.25.021", "Вал", 8, randomCell()),
-                    PickDetail(4, "НЗ.КШ.065.25.022", "Крышка", 8, randomCell()),
-                    PickDetail(5, "НЗ.КШ.065.25.023-01", "Втулка направляющая", 16, randomCell())
+                    PickDetail(4, "PN-GRAPE-01", "Виноград Кишмиш", 20, "Склад C, Холодильник 1", 5),
+                    PickDetail(5, "PN-PEAR-04", "Груши Конференция", 8, "Склад A, Секция 3, Ячейка 11", 2)
                 )
             ),
-            // ... остальные задания из предыдущего кода ...
-        )
+            PickTask(
+                id = "ZADANIE-003",
+                date = "2024-07-28",
+                description = "Мелкая сборка",
+                status = TaskStatus.COMPLETED,
+                details = listOf(
+                    PickDetail(6, "PN-WATERMELON-01", "Арбуз Астраханский", 1, "Склад D, Напольное", 1)
+                )
+            ),
+            PickTask(
+                id = "ZADANIE-004",
+                date = "2024-07-31",
+                description = "Тестовое задание с большим количеством позиций",
+                status = TaskStatus.NEW,
+                details = listOf(
+                    PickDetail(7, "PN-CARROT-01", "Морковь молодая", 15, "Склад A, Ячейка 12", 0),
+                    PickDetail(8, "PN-POTATO-01", "Картофель белый", 25, "Склад B, Ячейка 05", 3),
+                    PickDetail(9, "PN-ONION-01", "Лук репчатый", 8, "Склад A, Ячейка 08", 0),
+                    PickDetail(10, "PN-TOMATO-01", "Помидоры красные", 12, "Склад C, Ячейка 15", 7),
+                    PickDetail(11, "PN-CUCUMBER-01", "Огурцы свежие", 18, "Склад A, Ячейка 20", 0)
+                )
+            )
+        ).also {
+            println("Debug: Created ${it.size} example tasks")
+            it.forEach { task ->
+                println("Debug: Task ${task.id} has ${task.details.size} details")
+            }
+        }
     }
-}
-
-/**
- * Состояние печати
- */
-sealed class PrintingState {
-    object Idle : PrintingState()
-    object Printing : PrintingState()
-    data class Success(val message: String) : PrintingState()
-    data class Error(val message: String) : PrintingState()
 }

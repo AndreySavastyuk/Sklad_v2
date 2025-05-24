@@ -1,43 +1,30 @@
 package com.example.myprinterapp.ui.pick
 
-import androidx.compose.animation.*
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.myprinterapp.data.DetailStatus
 import com.example.myprinterapp.data.PickDetail
 import com.example.myprinterapp.data.PickTask
+import androidx.compose.ui.tooling.preview.Preview
 import com.example.myprinterapp.data.TaskStatus
-import com.example.myprinterapp.ui.theme.MyPrinterAppTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PickDetailsScreenImproved(
+fun PickDetailsScreen(
     task: PickTask?,
     showQtyDialogFor: PickDetail?,
     onShowQtyDialog: (PickDetail) -> Unit,
@@ -45,51 +32,36 @@ fun PickDetailsScreenImproved(
     onSubmitQty: (detailId: Int, quantity: Int) -> Unit,
     onScanAnyCode: (String) -> Unit,
     onBack: () -> Unit,
-    onPrintLabel: (PickDetail) -> Unit = {},
+    onSubmitPickedQty: (detailId: Int, quantity: Int) -> Unit,
     scannedQr: String?
 ) {
-    val focusManager = LocalFocusManager.current
+    // Отладочная информация
+    LaunchedEffect(task) {
+        println("Debug: PickDetailsScreen - task received: $task")
+        println("Debug: PickDetailsScreen - task details: ${task?.details}")
+        println("Debug: PickDetailsScreen - details count: ${task?.details?.size}")
+    }
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
+            TopAppBar(
                 title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "Задание №${task?.id ?: ""}",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        task?.customer?.let {
-                            Text(
-                                it,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    Text(
+                        if (task != null) "Детали задания №${task.id}" else "Задание не найдено",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            contentDescription = "Назад",
-                            modifier = Modifier.size(28.dp)
-                        )
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Назад")
                     }
                 },
                 actions = {
                     IconButton(onClick = { onScanAnyCode("") }) {
-                        Icon(
-                            Icons.Filled.QrCodeScanner,
-                            contentDescription = "Сканировать",
-                            modifier = Modifier.size(28.dp)
-                        )
+                        Icon(Icons.Filled.QrCodeScanner, contentDescription = "Сканировать")
                     }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                )
+                }
             )
         }
     ) { paddingValues ->
@@ -98,39 +70,142 @@ fun PickDetailsScreenImproved(
                 .padding(paddingValues)
                 .fillMaxSize()
         ) {
-            // Прогресс выполнения задания
-            if (task != null) {
-                TaskProgressCard(task)
-            }
-
-            if (task == null || task.details.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Нет деталей для отображения.")
+            when {
+                task == null -> {
+                    // Задание не найдено
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                "Задание не найдено",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Button(onClick = onBack) {
+                                Text("Вернуться к списку")
+                            }
+                        }
+                    }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(task.details, key = { it.id }) { detail ->
-                        PickDetailCard(
-                            detail = detail,
-                            onManualEnterQtyClick = { onShowQtyDialog(detail) },
-                            onPrintLabel = { onPrintLabel(detail) }
+
+                task.details.isEmpty() -> {
+                    // Нет деталей в задании
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                "В задании №${task.id} нет деталей",
+                                style = MaterialTheme.typography.headlineSmall
+                            )
+                            Text(
+                                "Возможно, задание еще не загружено или произошла ошибка",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Button(onClick = onBack) {
+                                Text("Вернуться к списку")
+                            }
+                        }
+                    }
+                }
+
+                else -> {
+                    // Отображаем информацию о задании
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
                         )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                "Информация о задании",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text("Дата: ${task.date}")
+                            Text("Описание: ${task.description}")
+                            Text("Статус: ${task.status.name}")
+                            Text("Позиций: ${task.details.size}")
+
+                            val progress = if (task.details.isNotEmpty()) {
+                                task.details.sumOf { it.picked } * 100 / task.details.sumOf { it.quantityToPick }
+                            } else 0
+                            Text("Прогресс: $progress%")
+                        }
+                    }
+
+                    // Список деталей
+                    LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(task.details, key = { it.id }) { detail ->
+                            PickDetailItem(
+                                detail = detail,
+                                onManualEnterQtyClick = { onShowQtyDialog(detail) }
+                            )
+                        }
                     }
                 }
             }
 
             // Диалог ввода количества
             showQtyDialogFor?.let { detailToUpdate ->
-                QuantityInputDialog(
-                    detail = detailToUpdate,
-                    onDismiss = onDismissQtyDialog,
-                    onSubmit = { qty ->
-                        onSubmitQty(detailToUpdate.id, qty)
-                        focusManager.clearFocus()
+                var quantityInput by remember { mutableStateOf(detailToUpdate.picked.toString()) }
+                AlertDialog(
+                    onDismissRequest = onDismissQtyDialog,
+                    title = { Text("Собрать: ${detailToUpdate.partName}") },
+                    text = {
+                        Column {
+                            Text("Артикул: ${detailToUpdate.partNumber}")
+                            Text("Ячейка: ${detailToUpdate.location}")
+                            Text("Нужно собрать: ${detailToUpdate.quantityToPick}")
+                            Text("Уже собрано: ${detailToUpdate.picked}")
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = quantityInput,
+                                onValueChange = { new ->
+                                    if (new.all { it.isDigit() } || new.isEmpty()) {
+                                        quantityInput = new
+                                    }
+                                },
+                                label = { Text("Собранное количество") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val enteredQty = quantityInput.toIntOrNull() ?: 0
+                            onSubmitQty(detailToUpdate.id, enteredQty)
+                            onDismissQtyDialog()
+                        }) {
+                            Text("OK")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = onDismissQtyDialog) {
+                            Text("Отмена")
+                        }
                     }
                 )
             }
@@ -139,416 +214,137 @@ fun PickDetailsScreenImproved(
 }
 
 @Composable
-fun TaskProgressCard(task: PickTask) {
+fun PickDetailItem(
+    detail: PickDetail,
+    onManualEnterQtyClick: () -> Unit
+) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
+            containerColor = when {
+                detail.picked == 0 -> MaterialTheme.colorScheme.surface
+                detail.picked < detail.quantityToPick -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            }
         )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "Прогресс выполнения",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${task.completedPositions}/${task.positionsCount}",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        " позиций",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-                Text(
-                    "${task.pickedItems}/${task.totalItems} товаров",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                )
-            }
-
-            // Круговой прогресс
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(80.dp)
-            ) {
-                CircularProgressIndicator(
-                    progress = task.completionPercentage / 100f,
-                    modifier = Modifier.fillMaxSize(),
-                    strokeWidth = 8.dp,
-                    color = when {
-                        task.completionPercentage >= 100 -> Color(0xFF4CAF50)
-                        task.completionPercentage > 0 -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.surfaceVariant
-                    }
-                )
-                Text(
-                    text = "${task.completionPercentage.toInt()}%",
-                    style = MaterialTheme.typography.titleLarge,
+                    text = detail.partName,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-            }
-        }
-    }
-}
+                Text(
+                    text = "Артикул: ${detail.partNumber}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
 
-@Composable
-fun PickDetailCard(
-    detail: PickDetail,
-    onManualEnterQtyClick: () -> Unit,
-    onPrintLabel: () -> Unit
-) {
-    val statusColor = when (detail.status) {
-        DetailStatus.NOT_STARTED -> MaterialTheme.colorScheme.surfaceVariant
-        DetailStatus.PARTIAL -> Color(0xFFFF9800)
-        DetailStatus.COMPLETED -> Color(0xFF4CAF50)
-    }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onManualEnterQtyClick() },
-        border = BorderStroke(
-            width = 2.dp,
-            color = if (detail.status == DetailStatus.COMPLETED) statusColor else Color.Transparent
-        ),
-        colors = CardDefaults.cardColors(
-            containerColor = if (detail.status == DetailStatus.COMPLETED)
-                statusColor.copy(alpha = 0.1f)
-            else MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            // Ячейка хранения - крупно сверху
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Filled.Inventory2,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = detail.location,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-
-                // Статус
-                if (detail.status == DetailStatus.COMPLETED) {
-                    Icon(
-                        Icons.Filled.CheckCircle,
-                        contentDescription = "Выполнено",
-                        modifier = Modifier.size(32.dp),
-                        tint = statusColor
-                    )
-                }
-            }
-
-            // Артикул детали
-            Text(
-                text = detail.partNumber,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp
-            )
-
-            // Название детали
-            Text(
-                text = detail.partName,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Количество и кнопки
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Прогресс количества
-                Column {
-                    Text(
-                        "Собрано:",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            "${detail.picked}",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = statusColor
-                        )
-                        Text(
-                            " / ${detail.quantityToPick}",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            " ${detail.unit}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
-                        )
-                    }
-
-                    // Линейный прогресс
-                    LinearProgressIndicator(
-                        progress = detail.completionPercentage / 100f,
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .width(120.dp)
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                        color = statusColor,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                }
-
-                // Кнопки действий
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Кнопка печати этикетки
-                    if (detail.picked > 0) {
-                        OutlinedIconButton(
-                            onClick = onPrintLabel,
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.Print,
-                                contentDescription = "Печать",
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
-                    // Кнопка ввода количества
-                    Button(
-                        onClick = onManualEnterQtyClick,
-                        modifier = Modifier.height(48.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (detail.status == DetailStatus.COMPLETED)
-                                MaterialTheme.colorScheme.secondaryContainer
-                            else MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Icon(
-                            if (detail.status == DetailStatus.COMPLETED)
-                                Icons.Filled.Edit
-                            else Icons.Filled.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            if (detail.picked == 0) "Ввод" else "Изменить",
-                            fontSize = 16.sp
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun QuantityInputDialog(
-    detail: PickDetail,
-    onDismiss: () -> Unit,
-    onSubmit: (Int) -> Unit
-) {
-    var quantityInput by remember { mutableStateOf(detail.picked.toString()) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                Icons.Filled.Inventory,
-                contentDescription = null,
-                modifier = Modifier.size(32.dp)
-            )
-        },
-        title = {
-            Text(
-                "Укажите количество",
-                style = MaterialTheme.typography.headlineSmall
-            )
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Информация о детали
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row {
-                            Text(
-                                "Ячейка: ",
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(detail.location)
-                        }
-                        Row {
-                            Text(
-                                "Артикул: ",
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(detail.partNumber)
-                        }
-                        Text(
-                            detail.partName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Divider(modifier = Modifier.padding(vertical = 4.dp))
-                        Row {
-                            Text(
-                                "Необходимо: ",
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text("${detail.quantityToPick} ${detail.unit}")
-                        }
-                    }
-                }
-
-                // Поле ввода
-                OutlinedTextField(
-                    value = quantityInput,
-                    onValueChange = { new ->
-                        if (new.all { it.isDigit() } || new.isEmpty()) {
-                            quantityInput = new
-                            error = null
-                        }
-                    },
-                    label = { Text("Собранное количество") },
-                    suffix = { Text(detail.unit) },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            val qty = quantityInput.toIntOrNull() ?: 0
-                            if (qty in 0..detail.quantityToPick) {
-                                onSubmit(qty)
-                            }
-                        }
-                    ),
-                    singleLine = true,
-                    isError = error != null,
-                    supportingText = error?.let { { Text(it) } },
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        Text(
+                            "Нужно: ${detail.quantityToPick}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            "Собрано: ${detail.picked}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (detail.picked >= detail.quantityToPick) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                }
+
+                Text(
+                    "Ячейка: ${detail.location}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Процент выполнения
+                val percentage = if (detail.quantityToPick > 0) {
+                    (detail.picked * 100 / detail.quantityToPick).coerceIn(0, 100)
+                } else 0
+
+                CircularProgressIndicator(
+                    progress = percentage / 100f,
+                    modifier = Modifier.size(40.dp),
+                    strokeWidth = 4.dp,
+                    color = when {
+                        percentage >= 100 -> MaterialTheme.colorScheme.primary
+                        percentage > 0 -> MaterialTheme.colorScheme.secondary
+                        else -> MaterialTheme.colorScheme.outline
+                    }
                 )
 
-                // Быстрые кнопки
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Text(
+                    "$percentage%",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
+                )
+
+                OutlinedButton(
+                    onClick = onManualEnterQtyClick,
+                    modifier = Modifier.defaultMinSize(minWidth = 80.dp)
                 ) {
-                    AssistChip(
-                        onClick = { quantityInput = "0" },
-                        label = { Text("Сброс") }
-                    )
-                    AssistChip(
-                        onClick = { quantityInput = detail.quantityToPick.toString() },
-                        label = { Text("Всё") }
-                    )
+                    Text("Ввод")
                 }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val enteredQty = quantityInput.toIntOrNull() ?: 0
-                    when {
-                        enteredQty < 0 -> error = "Количество не может быть отрицательным"
-                        enteredQty > detail.quantityToPick -> error = "Превышает необходимое количество"
-                        else -> onSubmit(enteredQty)
-                    }
-                }
-            ) {
-                Text("Сохранить")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Отмена")
             }
         }
-    )
+    }
 }
 
+// Preview с тестовыми данными
 @Preview(showBackground = true)
 @Composable
-fun PickDetailsScreenImprovedPreview() {
-    MyPrinterAppTheme {
-        val task = PickTask(
-            id = "001",
-            date = "2025-05-23",
-            description = "Тестовое задание",
-            status = TaskStatus.IN_PROGRESS,
-            customer = "ООО Техмаш",
-            details = listOf(
-                PickDetail(1, "НЗ.КШ.040.25.001-04", "Втулка направляющая", 5, "A12", picked = 3),
-                PickDetail(2, "НЗ.КШ.040.25.002-01", "Корпус основной", 2, "B05", picked = 2),
-                PickDetail(3, "НЗ.КШ.040.25.003", "Крышка верхняя", 10, "C18", picked = 0)
-            )
-        )
+fun PickDetailsScreenPreview() {
+    val testDetails = listOf(
+        PickDetail(1, "PN-APPLE-01", "Яблоки красные", 10, "Склад A, Ячейка 01", 5),
+        PickDetail(2, "PN-ORANGE-02", "Апельсины сладкие", 5, "Склад A, Ячейка 02", 5),
+        PickDetail(3, "PN-BANANA-03", "Бананы спелые", 12, "Склад B, Ячейка 05", 0)
+    )
 
-        PickDetailsScreenImproved(
-            task = task,
-            showQtyDialogFor = null,
-            onShowQtyDialog = {},
-            onDismissQtyDialog = {},
-            onSubmitQty = { _, _ -> },
-            onScanAnyCode = {},
-            onBack = {},
-            scannedQr = null
-        )
+    val testTask = PickTask(
+        id = "TEST-001",
+        date = "2024-07-30",
+        description = "Тестовое задание",
+        status = TaskStatus.IN_PROGRESS,
+        details = testDetails
+    )
+
+    MaterialTheme {
+        Surface {
+            PickDetailsScreen(
+                task = testTask,
+                showQtyDialogFor = null,
+                onShowQtyDialog = {},
+                onDismissQtyDialog = {},
+                onSubmitQty = { _, _ -> },
+                onScanAnyCode = {},
+                onBack = {},
+                onSubmitPickedQty = { _, _ -> },
+                scannedQr = null
+            )
+        }
     }
 }
