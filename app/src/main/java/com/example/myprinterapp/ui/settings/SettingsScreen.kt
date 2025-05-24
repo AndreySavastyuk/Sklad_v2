@@ -27,9 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myprinterapp.printer.ConnectionState
-import kotlinx.coroutines.flow.Flow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +43,8 @@ fun SettingsScreen(
 
     var showPrinterDialog by remember { mutableStateOf(false) }
     var showTestPrintDialog by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(false) }
+    var showClearDataDialog by remember { mutableStateOf(false) }
 
     // Bluetooth permissions
     val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
@@ -77,238 +77,273 @@ fun SettingsScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
         ) {
             // Секция принтера
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            item {
+                SettingsSection(
+                    title = "Принтер",
+                    icon = Icons.Filled.Print
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            Icons.Filled.Print,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            "Принтер",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    HorizontalDivider()
-
-                    // Информация о принтере
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Устройство:",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                printerName,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium
-                            )
-                            if (printerMac.isNotEmpty()) {
+                        // Информация о принтере
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    printerMac,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    "Устройство:",
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
-                        }
-
-                        // Статус подключения
-                        ConnectionStatusChip(connectionState)
-                    }
-
-                    // Кнопки управления
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Выбрать принтер
-                        OutlinedButton(
-                            onClick = {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    bluetoothPermissionLauncher.launch(
-                                        arrayOf(
-                                            Manifest.permission.BLUETOOTH_SCAN,
-                                            Manifest.permission.BLUETOOTH_CONNECT
-                                        )
+                                Text(
+                                    printerName,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                if (printerMac.isNotEmpty()) {
+                                    Text(
+                                        printerMac,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                } else {
-                                    showPrinterDialog = true
                                 }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                Icons.Filled.BluetoothSearching,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text("Выбрать")
+                            }
+
+                            // Статус подключения
+                            ConnectionStatusChip(connectionState)
                         }
 
-                        // Подключить/Отключить
-                        if (printerMac.isNotEmpty()) {
-                            Button(
+                        // Кнопки управления
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Выбрать принтер
+                            OutlinedButton(
                                 onClick = {
-                                    if (connectionState == com.example.myprinterapp.printer.ConnectionState.CONNECTED) {
-                                        viewModel.disconnectPrinter()
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        bluetoothPermissionLauncher.launch(
+                                            arrayOf(
+                                                Manifest.permission.BLUETOOTH_SCAN,
+                                                Manifest.permission.BLUETOOTH_CONNECT
+                                            )
+                                        )
                                     } else {
-                                        viewModel.connectPrinter()
+                                        showPrinterDialog = true
                                     }
                                 },
-                                modifier = Modifier.weight(1f),
-                                enabled = uiState !is SettingsUiState.Loading
+                                modifier = Modifier.weight(1f)
                             ) {
-                                when (connectionState) {
-                                    com.example.myprinterapp.printer.ConnectionState.CONNECTED -> {
-                                        Icon(Icons.Filled.BluetoothDisabled, null, Modifier.size(20.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Отключить")
-                                    }
-                                    com.example.myprinterapp.printer.ConnectionState.CONNECTING -> {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(20.dp),
-                                            strokeWidth = 2.dp
-                                        )
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Подключение...")
-                                    }
-                                    else -> {
-                                        Icon(Icons.Filled.BluetoothConnected, null, Modifier.size(20.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Подключить")
+                                Icon(
+                                    Icons.Filled.BluetoothSearching,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("Выбрать")
+                            }
+
+                            // Подключить/Отключить
+                            if (printerMac.isNotEmpty()) {
+                                Button(
+                                    onClick = {
+                                        if (connectionState == ConnectionState.CONNECTED) {
+                                            viewModel.disconnectPrinter()
+                                        } else {
+                                            viewModel.connectPrinter()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    enabled = uiState !is SettingsUiState.Loading
+                                ) {
+                                    when (connectionState) {
+                                        ConnectionState.CONNECTED -> {
+                                            Icon(Icons.Filled.BluetoothDisabled, null, Modifier.size(20.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Отключить")
+                                        }
+                                        ConnectionState.CONNECTING -> {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Подключение...")
+                                        }
+                                        else -> {
+                                            Icon(Icons.Filled.BluetoothConnected, null, Modifier.size(20.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Подключить")
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // Тестовая печать
-                    if (connectionState == com.example.myprinterapp.printer.ConnectionState.CONNECTED) {
-                        Button(
-                            onClick = { showTestPrintDialog = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        ) {
-                            Icon(Icons.Filled.Print, null, Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Тестовая печать")
+                        // Тестовая печать
+                        if (connectionState == ConnectionState.CONNECTED) {
+                            Button(
+                                onClick = { showTestPrintDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            ) {
+                                Icon(Icons.Filled.Print, null, Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Тестовая печать")
+                            }
                         }
                     }
                 }
             }
 
-            // Секция настроек печати
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+            // Секция параметров печати
+            item {
+                SettingsSection(
+                    title = "Параметры печати",
+                    icon = Icons.Filled.Settings
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            Icons.Filled.Settings,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                        PrintSettingsItem(
+                            title = "Плотность печати",
+                            value = "8 (стандарт)",
+                            icon = Icons.Filled.Tune
                         )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            "Параметры печати",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
+
+                        PrintSettingsItem(
+                            title = "Скорость печати",
+                            value = "2.0 дюйм/сек",
+                            icon = Icons.Filled.Speed
+                        )
+
+                        PrintSettingsItem(
+                            title = "Размер этикетки",
+                            value = "57 x 40 мм",
+                            icon = Icons.Filled.CropFree
+                        )
+
+                        PrintSettingsItem(
+                            title = "Кодировка QR",
+                            value = "UTF-8",
+                            icon = Icons.Filled.QrCode
                         )
                     }
+                }
+            }
 
-                    HorizontalDivider()
+            // Секция данных и хранения
+            item {
+                SettingsSection(
+                    title = "Данные и хранение",
+                    icon = Icons.Filled.Storage
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SettingsActionItem(
+                            title = "Экспорт журнала",
+                            subtitle = "Сохранить журнал операций в файл",
+                            icon = Icons.Filled.FileDownload,
+                            onClick = { /* TODO: Реализовать экспорт */ }
+                        )
 
-                    // Настройки печати
-                    PrintSettingsItem(
-                        title = "Плотность печати",
-                        value = "8 (стандарт)",
-                        icon = Icons.Filled.Tune
-                    )
+                        SettingsActionItem(
+                            title = "Синхронизация данных",
+                            subtitle = "Синхронизировать с сервером",
+                            icon = Icons.Filled.Sync,
+                            onClick = { /* TODO: Реализовать синхронизацию */ }
+                        )
 
-                    PrintSettingsItem(
-                        title = "Скорость печати",
-                        value = "2.0 дюйм/сек",
-                        icon = Icons.Filled.Speed
-                    )
+                        SettingsActionItem(
+                            title = "Очистить данные",
+                            subtitle = "Удалить все записи журнала",
+                            icon = Icons.Filled.DeleteSweep,
+                            onClick = { showClearDataDialog = true },
+                            isDestructive = true
+                        )
+                    }
+                }
+            }
 
-                    PrintSettingsItem(
-                        title = "Размер этикетки",
-                        value = "57 x 40 мм",
-                        icon = Icons.Filled.CropFree
-                    )
+            // Секция системы
+            item {
+                SettingsSection(
+                    title = "Система",
+                    icon = Icons.Filled.Info
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SettingsActionItem(
+                            title = "О приложении",
+                            subtitle = "Версия, лицензии, информация",
+                            icon = Icons.Filled.Info,
+                            onClick = { showAboutDialog = true }
+                        )
+
+                        SettingsActionItem(
+                            title = "Проверить обновления",
+                            subtitle = "Поиск новых версий приложения",
+                            icon = Icons.Filled.SystemUpdate,
+                            onClick = { /* TODO: Реализовать проверку обновлений */ }
+                        )
+
+                        SettingsActionItem(
+                            title = "Диагностика",
+                            subtitle = "Состояние системы и диагностика",
+                            icon = Icons.Filled.BugReport,
+                            onClick = { /* TODO: Реализовать диагностику */ }
+                        )
+                    }
                 }
             }
 
             // Сообщения об ошибках
             if (uiState is SettingsUiState.Error) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        )
                     ) {
-                        Icon(
-                            Icons.Filled.Error,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            (uiState as SettingsUiState.Error).message,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Filled.Error,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                (uiState as SettingsUiState.Error).message,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
                     }
                 }
             }
         }
     }
 
-    // Диалог выбора принтера
+    // Диалоги
     if (showPrinterDialog) {
         PrinterSelectionDialog(
             onDismiss = { showPrinterDialog = false },
@@ -319,7 +354,6 @@ fun SettingsScreen(
         )
     }
 
-    // Диалог тестовой печати
     if (showTestPrintDialog) {
         TestPrintDialog(
             onDismiss = { showTestPrintDialog = false },
@@ -329,12 +363,199 @@ fun SettingsScreen(
             }
         )
     }
+
+    if (showAboutDialog) {
+        AboutDialog(
+            onDismiss = { showAboutDialog = false }
+        )
+    }
+
+    if (showClearDataDialog) {
+        ClearDataDialog(
+            onDismiss = { showClearDataDialog = false },
+            onConfirm = {
+                // TODO: Вызвать метод очистки данных
+                showClearDataDialog = false
+            }
+        )
+    }
 }
 
 @Composable
-fun ConnectionStatusChip(state: com.example.myprinterapp.printer.ConnectionState) {
+fun SettingsSection(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            HorizontalDivider()
+
+            content()
+        }
+    }
+}
+
+@Composable
+fun SettingsActionItem(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    isDestructive: Boolean = false
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+            tint = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Icon(
+            Icons.Filled.ChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+fun AboutDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                Icons.Filled.Info,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        },
+        title = { Text("О приложении") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "MyPrinterApp",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text("Версия: 1.0.0")
+                Text("Сборка: 2025.05.24")
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Приложение для управления складскими операциями с печатью этикеток.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "© 2025 Все права защищены",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть")
+            }
+        }
+    )
+}
+
+@Composable
+fun ClearDataDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                Icons.Filled.Warning,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = MaterialTheme.colorScheme.error
+            )
+        },
+        title = { Text("Очистить данные") },
+        text = {
+            Text(
+                "Это действие удалит все записи из журнала операций. " +
+                        "Данные нельзя будет восстановить.\n\n" +
+                        "Вы уверены, что хотите продолжить?"
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("Удалить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена")
+            }
+        }
+    )
+}
+
+// Остальные компоненты остаются без изменений...
+@Composable
+fun ConnectionStatusChip(state: ConnectionState) {
     val (icon, text, containerColor, contentColor) = when (state) {
-        com.example.myprinterapp.printer.ConnectionState.CONNECTED -> {
+        ConnectionState.CONNECTED -> {
             Tuple4(
                 Icons.Filled.CheckCircle,
                 "Подключен",
@@ -342,7 +563,7 @@ fun ConnectionStatusChip(state: com.example.myprinterapp.printer.ConnectionState
                 Color.White
             )
         }
-        com.example.myprinterapp.printer.ConnectionState.CONNECTING -> {
+        ConnectionState.CONNECTING -> {
             Tuple4(
                 Icons.Filled.Sync,
                 "Подключение",

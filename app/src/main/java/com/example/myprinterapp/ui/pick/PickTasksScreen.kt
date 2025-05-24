@@ -5,8 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -22,7 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myprinterapp.data.*
 import com.example.myprinterapp.ui.theme.MyPrinterAppTheme
-import java.time.LocalDateTime
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 // Утилита для затемнения цвета
 private fun Color.darker(factor: Float = 0.8f): Color {
@@ -34,6 +36,29 @@ private fun Color.darker(factor: Float = 0.8f): Color {
     )
 }
 
+// Форматирование даты в нужный формат
+private fun formatDate(dateString: String): String {
+    return try {
+        val date = LocalDate.parse(dateString)
+        val formatter = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru"))
+        date.format(formatter)
+    } catch (e: Exception) {
+        dateString // Возвращаем исходную строку если не удалось распарсить
+    }
+}
+
+// Извлечение номера задания из ID
+private fun extractTaskNumber(taskId: String): String {
+    return taskId.replace("ZADANIE-", "")
+}
+
+// Функция для извлечения номера заказа из описания
+private fun extractOrderNumber(description: String): String {
+    // Ищем паттерн вида 2023/023
+    val orderPattern = Regex("""\d{4}/\d{3}""")
+    return orderPattern.find(description)?.value ?: ""
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PickTasksScreen(
@@ -41,10 +66,13 @@ fun PickTasksScreen(
     onOpenTask: (taskId: String) -> Unit,
     onBack: () -> Unit,
     onImportTasks: () -> Unit = {},
-    onFilterTasks: () -> Unit = {}
+    onFilterTasks: () -> Unit = {},
+    onMarkAsCompleted: (taskId: String) -> Unit = {},
+    onPauseTask: (taskId: String) -> Unit = {},
+    onCancelTask: (taskId: String) -> Unit = {}
 ) {
     var selectedFilter by remember { mutableStateOf<TaskStatus?>(null) }
-    var showTransferDialog by remember { mutableStateOf(false) }
+    var showTaskMenu by remember { mutableStateOf<String?>(null) }
 
     val filteredTasks = if (selectedFilter != null) {
         tasks.filter { it.status == selectedFilter }
@@ -79,23 +107,6 @@ fun PickTasksScreen(
                     }
                 },
                 actions = {
-                    // Кнопка передачи заданий
-                    IconButton(
-                        onClick = { showTransferDialog = true },
-                        enabled = tasks.any { it.status != TaskStatus.COMPLETED }
-                    ) {
-                        Icon(
-                            Icons.Filled.SendToMobile,
-                            contentDescription = "Передать на планшет",
-                            modifier = Modifier.size(28.dp),
-                            tint = if (tasks.any { it.status != TaskStatus.COMPLETED }) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            }
-                        )
-                    }
-
                     // Кнопка импорта заданий
                     IconButton(onClick = onImportTasks) {
                         Icon(
@@ -104,7 +115,6 @@ fun PickTasksScreen(
                             modifier = Modifier.size(28.dp)
                         )
                     }
-
                     // Кнопка фильтра
                     IconButton(onClick = onFilterTasks) {
                         Icon(
@@ -157,7 +167,14 @@ fun PickTasksScreen(
                             enter = fadeIn() + expandVertically(),
                             exit = fadeOut() + shrinkVertically()
                         ) {
-                            PickTaskItem(task = task, onOpenTask = { onOpenTask(task.id) })
+                            ImprovedPickTaskItem(
+                                task = task,
+                                onOpenTask = { onOpenTask(task.id) },
+                                onMenuClick = { showTaskMenu = task.id },
+                                onMarkCompleted = { onMarkAsCompleted(task.id) },
+                                onPauseTask = { onPauseTask(task.id) },
+                                onCancelTask = { onCancelTask(task.id) }
+                            )
                         }
                     }
                 }
@@ -165,16 +182,432 @@ fun PickTasksScreen(
         }
     }
 
-    // Диалог передачи заданий
-    if (showTransferDialog) {
-        TaskTransferDialog(
-            tasks = tasks,
-            onDismiss = { showTransferDialog = false },
-            onTasksSelected = { selectedTasks ->
-                // TODO: Обработка выбранных заданий
-                showTransferDialog = false
-            }
+    // Меню действий для задания
+    showTaskMenu?.let { taskId ->
+        val task = tasks.find { it.id == taskId }
+        if (task != null) {
+            TaskActionsDialog(
+                task = task,
+                onDismiss = { showTaskMenu = null },
+                onOpenTask = {
+                    onOpenTask(taskId)
+                    showTaskMenu = null
+                },
+                onMarkCompleted = {
+                    onMarkAsCompleted(taskId)
+                    showTaskMenu = null
+                },
+                onPauseTask = {
+                    onPauseTask(taskId)
+                    showTaskMenu = null
+                },
+                onCancelTask = {
+                    onCancelTask(taskId)
+                    showTaskMenu = null
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun ImprovedPickTaskItem(
+    task: PickTask,
+    onOpenTask: () -> Unit,
+    onMenuClick: () -> Unit,
+    onMarkCompleted: () -> Unit,
+    onPauseTask: () -> Unit,
+    onCancelTask: () -> Unit
+) {
+    val borderColor = MaterialTheme.colorScheme.outline.darker(0.8f)
+    val statusColor = getStatusColor(task.status)
+    val priorityColor = getPriorityColor(task.priority)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.5f)),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
         )
+    ) {
+        Column {
+            // Заголовок задания
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Индикатор приоритета
+                        if (task.priority != Priority.NORMAL) {
+                            Surface(
+                                shape = MaterialTheme.shapes.extraSmall,
+                                color = priorityColor.copy(alpha = 0.2f),
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    getPriorityIcon(task.priority),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .padding(4.dp),
+                                    tint = priorityColor
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Задание №${extractTaskNumber(task.id)}",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    // Статус
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = statusColor.copy(alpha = 0.15f),
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = getStatusIcon(task.status),
+                                contentDescription = null,
+                                tint = statusColor,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = task.status.toRussianString(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = statusColor,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                // Кнопка меню
+                IconButton(onClick = onMenuClick) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "Меню действий",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            // Основная информация
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Дата и заказ в одной строке
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    InfoChip(
+                        icon = Icons.Filled.CalendarToday,
+                        label = "Дата",
+                        value = formatDate(task.date),
+                        backgroundColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                    )
+
+                    // Номер заказа (извлекаем из описания или других данных)
+                    val orderNumber = extractOrderNumber(task.description)
+                    if (orderNumber.isNotEmpty()) {
+                        InfoChip(
+                            icon = Icons.Filled.Receipt,
+                            label = "Заказ",
+                            value = orderNumber,
+                            backgroundColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                        )
+                    }
+                }
+
+                // Клиент
+                if (task.customer != null) {
+                    InfoRow(
+                        icon = Icons.Filled.Business,
+                        label = "Клиент:",
+                        value = task.customer,
+                        iconTint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                // Описание
+                if (task.description.isNotBlank()) {
+                    InfoRow(
+                        icon = Icons.Filled.Description,
+                        label = "Описание:",
+                        value = task.description,
+                        singleLineValue = false,
+                        maxLinesValue = 2
+                    )
+                }
+
+                // Срок выполнения
+                if (task.deadline != null) {
+                    InfoRow(
+                        icon = Icons.Filled.Schedule,
+                        label = "Срок:",
+                        value = formatDate(task.deadline),
+                        iconTint = if (task.priority == Priority.URGENT) priorityColor else MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+            // Прогресс и статистика
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Статистика
+                Column {
+                    Text(
+                        "Позиций: ${task.completedPositions}/${task.positionsCount}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        "Товаров: ${task.pickedItems}/${task.totalItems} шт",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Круговой прогресс
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(60.dp)
+                ) {
+                    CircularProgressIndicator(
+                        progress = task.completionPercentage / 100f,
+                        modifier = Modifier.fillMaxSize(),
+                        strokeWidth = 6.dp,
+                        color = when {
+                            task.completionPercentage >= 100 -> Color(0xFF4CAF50)
+                            task.completionPercentage > 0 -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    )
+                    Text(
+                        text = "${task.completionPercentage.toInt()}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Кнопка основного действия
+            Button(
+                onClick = onOpenTask,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = when (task.status) {
+                        TaskStatus.COMPLETED -> MaterialTheme.colorScheme.surfaceVariant
+                        TaskStatus.CANCELLED -> MaterialTheme.colorScheme.errorContainer
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                ),
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Icon(
+                    when (task.status) {
+                        TaskStatus.COMPLETED -> Icons.Filled.Visibility
+                        TaskStatus.CANCELLED -> Icons.Filled.Restore
+                        else -> Icons.Filled.PlayArrow
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    when (task.status) {
+                        TaskStatus.COMPLETED -> "Просмотреть"
+                        TaskStatus.CANCELLED -> "Восстановить"
+                        TaskStatus.NEW -> "Начать сборку"
+                        TaskStatus.IN_PROGRESS -> "Продолжить сборку"
+                        TaskStatus.PAUSED -> "Возобновить"
+                        TaskStatus.VERIFIED -> "Детали"
+                    },
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun InfoChip(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    backgroundColor: Color = MaterialTheme.colorScheme.surfaceVariant
+) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = backgroundColor
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Column {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TaskActionsDialog(
+    task: PickTask,
+    onDismiss: () -> Unit,
+    onOpenTask: () -> Unit,
+    onMarkCompleted: () -> Unit,
+    onPauseTask: () -> Unit,
+    onCancelTask: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Assignment,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text("Задание №${extractTaskNumber(task.id)}")
+            }
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "Выберите действие:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Кнопки действий
+                TaskActionButton(
+                    icon = Icons.Filled.PlayArrow,
+                    text = "Открыть задание",
+                    onClick = onOpenTask
+                )
+
+                if (task.status == TaskStatus.IN_PROGRESS || task.status == TaskStatus.PAUSED) {
+                    TaskActionButton(
+                        icon = Icons.Filled.CheckCircle,
+                        text = "Отметить завершенным",
+                        onClick = onMarkCompleted
+                    )
+                }
+
+                if (task.status == TaskStatus.IN_PROGRESS) {
+                    TaskActionButton(
+                        icon = Icons.Filled.Pause,
+                        text = "Приостановить",
+                        onClick = onPauseTask
+                    )
+                }
+
+                if (task.status != TaskStatus.CANCELLED && task.status != TaskStatus.COMPLETED) {
+                    TaskActionButton(
+                        icon = Icons.Filled.Cancel,
+                        text = "Отменить задание",
+                        onClick = onCancelTask,
+                        isDestructive = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Закрыть")
+            }
+        }
+    )
+}
+
+@Composable
+fun TaskActionButton(
+    icon: ImageVector,
+    text: String,
+    onClick: () -> Unit,
+    isDestructive: Boolean = false
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+        ),
+        border = BorderStroke(
+            1.dp,
+            if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+        )
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 
@@ -231,212 +664,6 @@ fun StatusFilterChips(
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = getStatusColor(status).copy(alpha = 0.2f)
                     )
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun PickTaskItem(
-    task: PickTask,
-    onOpenTask: () -> Unit
-) {
-    val borderColor = MaterialTheme.colorScheme.outline.darker(0.8f)
-    val statusColor = getStatusColor(task.status)
-    val statusIcon = getStatusIcon(task.status)
-    val priorityColor = getPriorityColor(task.priority)
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenTask),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-        shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.7f)),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth()
-        ) {
-            // Заголовок с приоритетом
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    // Индикатор приоритета
-                    if (task.priority != Priority.NORMAL) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = priorityColor.copy(alpha = 0.2f),
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Icon(
-                                getPriorityIcon(task.priority),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .padding(2.dp),
-                                tint = priorityColor
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "Задание № ${task.id}",
-                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Статус
-                Surface(
-                    shape = MaterialTheme.shapes.small,
-                    color = statusColor.copy(alpha = 0.2f)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = statusIcon,
-                            contentDescription = null,
-                            tint = statusColor,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = task.status.toRussianString(),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = statusColor,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Информация о задании
-            if (task.customer != null) {
-                InfoRow(
-                    icon = Icons.Filled.Business,
-                    label = "Клиент:",
-                    value = task.customer,
-                    iconTint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-
-            InfoRow(icon = Icons.Filled.CalendarToday, label = "Дата:", value = task.date)
-
-            if (task.deadline != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                InfoRow(
-                    icon = Icons.Filled.Schedule,
-                    label = "Срок:",
-                    value = task.deadline,
-                    iconTint = if (task.priority == Priority.URGENT) priorityColor else null
-                )
-            }
-
-            if (task.description.isNotBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                InfoRow(
-                    icon = Icons.Filled.Description,
-                    label = "Описание:",
-                    value = task.description,
-                    singleLineValue = false,
-                    maxLinesValue = 2
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Статистика позиций
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    InfoRow(
-                        icon = Icons.Filled.FormatListNumbered,
-                        label = "Позиций:",
-                        value = "${task.completedPositions}/${task.positionsCount}"
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    InfoRow(
-                        icon = Icons.Filled.Inventory,
-                        label = "Товаров:",
-                        value = "${task.pickedItems}/${task.totalItems} шт"
-                    )
-                }
-
-                // Круговой прогресс
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(60.dp)
-                ) {
-                    CircularProgressIndicator(
-                        progress = task.completionPercentage / 100f,
-                        modifier = Modifier.fillMaxSize(),
-                        strokeWidth = 6.dp,
-                        color = when {
-                            task.completionPercentage >= 100 -> Color(0xFF4CAF50)
-                            task.completionPercentage > 0 -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.surfaceVariant
-                        }
-                    )
-                    Text(
-                        text = "${task.completionPercentage.toInt()}%",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Кнопка действия
-            Button(
-                onClick = onOpenTask,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = when (task.status) {
-                        TaskStatus.COMPLETED -> MaterialTheme.colorScheme.surfaceVariant
-                        TaskStatus.CANCELLED -> MaterialTheme.colorScheme.errorContainer
-                        else -> MaterialTheme.colorScheme.primary
-                    }
-                )
-            ) {
-                Icon(
-                    when (task.status) {
-                        TaskStatus.COMPLETED -> Icons.Filled.Visibility
-                        TaskStatus.CANCELLED -> Icons.Filled.Restore
-                        else -> Icons.Filled.PlayArrow
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    when (task.status) {
-                        TaskStatus.COMPLETED -> "Просмотреть"
-                        TaskStatus.CANCELLED -> "Восстановить"
-                        TaskStatus.NEW -> "Начать сборку"
-                        TaskStatus.IN_PROGRESS -> "Продолжить сборку"
-                        TaskStatus.PAUSED -> "Возобновить"
-                        TaskStatus.VERIFIED -> "Детали"
-                    },
-                    fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -514,22 +741,22 @@ fun PickTasksScreenPreview() {
 
 private fun generatePreviewTasks(): List<PickTask> {
     val details1 = listOf(
-        PickDetail(1, "PART-001", "Деталь A1", 5, "S69", 2),
-        PickDetail(2, "PART-002", "Деталь A2", 3, "S70", 3)
+        PickDetail(1, "PART-001", "Деталь A1", 5, "A69", 2),
+        PickDetail(2, "PART-002", "Деталь A2", 3, "A70", 3)
     )
     val details2 = listOf(
-        PickDetail(3, "PART-101", "Деталь B1", 10, "S01", 5),
-        PickDetail(4, "PART-102", "Деталь B2", 8, "S02", 0)
+        PickDetail(3, "PART-101", "Деталь B1", 10, "B01", 5),
+        PickDetail(4, "PART-102", "Деталь B2", 8, "B02", 0)
     )
 
     return listOf(
-        PickTask("T-2024-001", "23.05.2025", "Срочная сборка для VIP клиента",
-            TaskStatus.NEW, details1, Priority.URGENT, "ООО Ромашка", "24.05.2025"),
-        PickTask("T-2024-002", "23.05.2025", "Плановая комплектация",
-            TaskStatus.IN_PROGRESS, details2, Priority.NORMAL, "ИП Петров"),
-        PickTask("T-2024-003", "22.05.2025", "Выполнено вчера",
+        PickTask("ZADANIE-001", "2025-05-30", "Сборка для клиента 'ООО Ромашка' по заказу 2023/023",
+            TaskStatus.NEW, details1, Priority.URGENT, "ООО Ромашка", "2025-06-01"),
+        PickTask("ZADANIE-002", "2025-05-29", "Плановая комплектация заказа 2024/156",
+            TaskStatus.IN_PROGRESS, details2, Priority.NORMAL, "ИП Петров", "2025-05-31"),
+        PickTask("ZADANIE-003", "2025-05-28", "Выполнено вчера заказ 2024/078",
             TaskStatus.COMPLETED, details1.map { it.copy(picked = it.quantityToPick) }, Priority.HIGH),
-        PickTask("T-2024-004", "21.05.2025", "Отменен клиентом",
+        PickTask("ZADANIE-004", "2025-05-27", "Отменен клиентом заказ 2023/199",
             TaskStatus.CANCELLED, details2, Priority.LOW, "ЗАО Техно")
     )
 }

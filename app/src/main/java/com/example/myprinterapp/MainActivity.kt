@@ -124,7 +124,27 @@ class MainActivity : ComponentActivity() {
                                 pickVm.openTask(taskId)
                                 navController.navigate("pick_details")
                             },
-                            onBack = { navController.popBackStack() }
+                            onBack = { navController.popBackStack() },
+                            onImportTasks = {
+                                // TODO: Реализовать импорт заданий
+                                println("Debug: Import tasks clicked")
+                            },
+                            onFilterTasks = {
+                                // TODO: Реализовать расширенные фильтры
+                                println("Debug: Filter tasks clicked")
+                            },
+                            onMarkAsCompleted = { taskId ->
+                                pickVm.markTaskAsCompleted(taskId)
+                                println("Debug: Marked task $taskId as completed")
+                            },
+                            onPauseTask = { taskId ->
+                                pickVm.pauseTask(taskId)
+                                println("Debug: Paused task $taskId")
+                            },
+                            onCancelTask = { taskId ->
+                                pickVm.cancelTask(taskId)
+                                println("Debug: Cancelled task $taskId")
+                            }
                         )
                     }
 

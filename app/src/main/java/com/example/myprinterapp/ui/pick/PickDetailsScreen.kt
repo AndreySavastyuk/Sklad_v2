@@ -1,5 +1,6 @@
 package com.example.myprinterapp.ui.pick
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -171,14 +172,63 @@ fun PickDetailsScreen(
                 var quantityInput by remember { mutableStateOf(detailToUpdate.picked.toString()) }
                 AlertDialog(
                     onDismissRequest = onDismissQtyDialog,
-                    title = { Text("Собрать: ${detailToUpdate.partName}") },
+                    title = {
+                        Text(
+                            "Собрать: ${detailToUpdate.partName}",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
                     text = {
                         Column {
-                            Text("Артикул: ${detailToUpdate.partNumber}")
-                            Text("Ячейка: ${detailToUpdate.location}")
-                            Text("Нужно собрать: ${detailToUpdate.quantityToPick}")
-                            Text("Уже собрано: ${detailToUpdate.picked}")
+                            Text(
+                                "Номер детали: ${detailToUpdate.partNumber}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
                             Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = MaterialTheme.shapes.medium,
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(16.dp)
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            "ЯЧЕЙКА",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                        Text(
+                                            text = detailToUpdate.location,
+                                            style = MaterialTheme.typography.headlineLarge,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 32.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "Нужно собрать: ${detailToUpdate.quantityToPick} шт",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                "Уже собрано: ${detailToUpdate.picked} шт",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
                             OutlinedTextField(
                                 value = quantityInput,
                                 onValueChange = { new ->
@@ -186,25 +236,36 @@ fun PickDetailsScreen(
                                         quantityInput = new
                                     }
                                 },
-                                label = { Text("Собранное количество") },
+                                label = { Text("Собранное количество", fontSize = 16.sp) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                textStyle = androidx.compose.ui.text.TextStyle(
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
                             )
                         }
                     },
                     confirmButton = {
-                        TextButton(onClick = {
-                            val enteredQty = quantityInput.toIntOrNull() ?: 0
-                            onSubmitQty(detailToUpdate.id, enteredQty)
-                            onDismissQtyDialog()
-                        }) {
-                            Text("OK")
+                        Button(
+                            onClick = {
+                                val enteredQty = quantityInput.toIntOrNull() ?: 0
+                                onSubmitQty(detailToUpdate.id, enteredQty)
+                                onDismissQtyDialog()
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("СОХРАНИТЬ", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = onDismissQtyDialog) {
-                            Text("Отмена")
+                        TextButton(
+                            onClick = onDismissQtyDialog,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("ОТМЕНА", fontSize = 16.sp)
                         }
                     }
                 )
@@ -231,52 +292,89 @@ fun PickDetailItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(16.dp)
+                .heightIn(min = 80.dp), // Минимальная высота для удобства чтения
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            // Левая часть - основная информация
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Номер детали - ГЛАВНАЯ информация (крупный шрифт)
+                Text(
+                    text = detail.partNumber,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                // Название детали - менее важно (меньший шрифт)
                 Text(
                     text = detail.partName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontSize = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
-                Text(
-                    text = "Артикул: ${detail.partNumber}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(4.dp))
 
+                // Количество - менее важно
                 Row(
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Column {
+                    Text(
+                        "Нужно: ${detail.quantityToPick}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        "Собрано: ${detail.picked}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 14.sp,
+                        color = if (detail.picked >= detail.quantityToPick) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+
+            // Центральная часть - Ячейка (ГЛАВНАЯ информация)
+            Surface(
+                modifier = Modifier
+                    .padding(horizontal = 12.dp)
+                    .widthIn(min = 80.dp)
+                    .heightIn(min = 60.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.padding(8.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+
                         Text(
-                            "Нужно: ${detail.quantityToPick}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            "Собрано: ${detail.picked}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (detail.picked >= detail.quantityToPick) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
+                            text = detail.location,
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 40.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
                 }
-
-                Text(
-                    "Ячейка: ${detail.location}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
-
+            // Правая часть - Прогресс и кнопка
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -288,8 +386,8 @@ fun PickDetailItem(
 
                 CircularProgressIndicator(
                     progress = percentage / 100f,
-                    modifier = Modifier.size(40.dp),
-                    strokeWidth = 4.dp,
+                    modifier = Modifier.size(50.dp),
+                    strokeWidth = 5.dp,
                     color = when {
                         percentage >= 100 -> MaterialTheme.colorScheme.primary
                         percentage > 0 -> MaterialTheme.colorScheme.secondary
@@ -299,15 +397,20 @@ fun PickDetailItem(
 
                 Text(
                     "$percentage%",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
                 )
 
                 OutlinedButton(
                     onClick = onManualEnterQtyClick,
-                    modifier = Modifier.defaultMinSize(minWidth = 80.dp)
+                    modifier = Modifier.defaultMinSize(minWidth = 90.dp, minHeight = 40.dp)
                 ) {
-                    Text("Ввод")
+                    Text(
+                        "ВВОД",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -319,9 +422,9 @@ fun PickDetailItem(
 @Composable
 fun PickDetailsScreenPreview() {
     val testDetails = listOf(
-        PickDetail(1, "PN-APPLE-01", "Яблоки красные", 10, "Склад A, Ячейка 01", 5),
-        PickDetail(2, "PN-ORANGE-02", "Апельсины сладкие", 5, "Склад A, Ячейка 02", 5),
-        PickDetail(3, "PN-BANANA-03", "Бананы спелые", 12, "Склад B, Ячейка 05", 0)
+        PickDetail(1, "PN-APPLE-01", "Яблоки красные", 10, "A01", 5),
+        PickDetail(2, "PN-ORANGE-02", "Апельсины сладкие", 5, "A02", 5),
+        PickDetail(3, "PN-BANANA-03", "Бананы спелые", 12, "B05", 0)
     )
 
     val testTask = PickTask(
@@ -333,18 +436,16 @@ fun PickDetailsScreenPreview() {
     )
 
     MaterialTheme {
-        Surface {
-            PickDetailsScreen(
-                task = testTask,
-                showQtyDialogFor = null,
-                onShowQtyDialog = {},
-                onDismissQtyDialog = {},
-                onSubmitQty = { _, _ -> },
-                onScanAnyCode = {},
-                onBack = {},
-                onSubmitPickedQty = { _, _ -> },
-                scannedQr = null
-            )
-        }
+        PickDetailsScreen(
+            task = testTask,
+            showQtyDialogFor = null,
+            onShowQtyDialog = {},
+            onDismissQtyDialog = {},
+            onSubmitQty = { _, _ -> },
+            onScanAnyCode = {},
+            onBack = {},
+            onSubmitPickedQty = { _, _ -> },
+            scannedQr = null
+        )
     }
 }
