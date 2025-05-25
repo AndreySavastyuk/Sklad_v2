@@ -50,6 +50,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalTextStyle
+import com.example.myprinterapp.ui.components.ScannerInputField
+import com.example.myprinterapp.ui.components.ScannerSetupInstructions
+import com.example.myprinterapp.ui.components.ScannerDebugDialog
+import com.example.myprinterapp.scanner.ScannerState
 
 // Утилита для затемнения цвета (простой вариант)
 private fun Color.darker(factor: Float = 0.8f): Color {
@@ -88,7 +92,8 @@ fun AcceptScreen(
     cellCode: String,
     uiState: AcceptUiState,
     printerConnectionState: ConnectionState,
-    onScanWithScanner: () -> Unit,
+    scannerConnectionState: ScannerState,
+    onScanWithScanner: (String) -> Unit,
     onScanWithCamera: () -> Unit,
     onQuantityChange: (String) -> Unit,
     onCellCodeChange: (String) -> Unit,
@@ -105,6 +110,10 @@ fun AcceptScreen(
     val showEditDialog by viewModel.showEditDialog.collectAsState()
     val editingRecord by viewModel.editingRecord.collectAsState()
     val lastOperations by viewModel.lastOperations.collectAsState()
+
+    var showScannerSetup by remember { mutableStateOf(false) }
+    var showScannerDebug by remember { mutableStateOf(false) }
+    var scannerInputValue by remember { mutableStateOf("") }
 
     val borderColor = MaterialTheme.colorScheme.outline.darker(0.8f)
     val buttonBorder = BorderStroke(1.dp, borderColor)
@@ -157,6 +166,15 @@ fun AcceptScreen(
                         }
                     }
 
+                    // Индикатор состояния сканера
+                    ScannerStatusIndicator(
+                        connectionState = scannerConnectionState,
+                        onClick = {
+                            // Долгое нажатие - отладка, короткое - настройка
+                            showScannerDebug = true
+                        }
+                    )
+
                     // Индикатор состояния принтера
                     PrinterStatusIndicator(
                         connectionState = printerConnectionState,
@@ -183,19 +201,60 @@ fun AcceptScreen(
             ) {
                 Text("Выберите способ сканирования:", style = MaterialTheme.typography.titleLarge, fontSize = 22.sp)
 
+                // Поле для ввода со сканера
+                if (scannerConnectionState == ScannerState.CONNECTED) {
+                    ScannerInputField(
+                        value = scannerInputValue,
+                        onValueChange = { scannerInputValue = it },
+                        onScanComplete = { code ->
+                            onScanWithScanner(code)
+                            scannerInputValue = ""
+                        },
+                        label = "Сканируйте QR-код",
+                        placeholder = "Наведите сканер HR32-BT и нажмите кнопку",
+                        isConnected = true,
+                        autoFocus = true,
+                        clearAfterScan = true
+                    )
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
                     Button(
-                        onClick = onScanWithScanner,
+                        onClick = {
+                            if (scannerConnectionState == ScannerState.CONNECTED) {
+                                // Фокусируемся на поле ввода
+                                focusManager.clearFocus()
+                            } else {
+                                showScannerSetup = true
+                            }
+                        },
                         modifier = Modifier.weight(1f).height(100.dp),
                         shape = MaterialTheme.shapes.medium,
                         contentPadding = PaddingValues(vertical = 12.dp),
                         border = buttonBorder,
-                        enabled = uiState !is AcceptUiState.Printing
+                        enabled = uiState !is AcceptUiState.Printing,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (scannerConnectionState == ScannerState.CONNECTED)
+                                Color(0xFF4CAF50).copy(alpha = 0.9f)
+                            else MaterialTheme.colorScheme.primary
+                        )
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Filled.BluetoothSearching, "Сканер Bluetooth", modifier = Modifier.size(40.dp))
+                            Icon(
+                                if (scannerConnectionState == ScannerState.CONNECTED)
+                                    Icons.Filled.BluetoothConnected
+                                else Icons.Filled.BluetoothSearching,
+                                "Сканер Bluetooth",
+                                modifier = Modifier.size(40.dp)
+                            )
                             Spacer(Modifier.height(8.dp))
-                            Text("Сканер BT", fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                if (scannerConnectionState == ScannerState.CONNECTED)
+                                    "HR32-BT"
+                                else "Сканер BT",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                     Button(
@@ -399,6 +458,21 @@ fun AcceptScreen(
         }
     }
 
+    // Диалог настройки сканера
+    if (showScannerSetup) {
+        ScannerSetupInstructions(
+            onDismiss = { showScannerSetup = false }
+        )
+    }
+
+    // Диалог отладки сканера
+    if (showScannerDebug) {
+        ScannerDebugDialog(
+            scannerService = viewModel.scannerService,
+            onDismiss = { showScannerDebug = false }
+        )
+    }
+
     // Диалог редактирования
     editingRecord?.let { record ->
         if (showEditDialog) {
@@ -410,6 +484,29 @@ fun AcceptScreen(
                 }
             )
         }
+    }
+}
+
+@Composable
+fun ScannerStatusIndicator(
+    connectionState: ScannerState,
+    onClick: () -> Unit
+) {
+    val (icon, tint) = when (connectionState) {
+        ScannerState.CONNECTED -> Icons.Filled.BluetoothConnected to Color(0xFF4CAF50)
+        ScannerState.DISCONNECTED -> Icons.Filled.BluetoothDisabled to MaterialTheme.colorScheme.error
+    }
+
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(48.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = "Состояние сканера",
+            tint = tint,
+            modifier = Modifier.size(32.dp)
+        )
     }
 }
 
@@ -547,5 +644,5 @@ fun LargeInputTextField(
             unfocusedBorderColor = borderColor,
         ),
 
-    )
+        )
 }

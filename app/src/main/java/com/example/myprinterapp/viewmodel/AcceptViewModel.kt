@@ -6,6 +6,8 @@ import com.example.myprinterapp.printer.LabelData
 import com.example.myprinterapp.printer.LabelType
 import com.example.myprinterapp.printer.PrinterService
 import com.example.myprinterapp.printer.ConnectionState
+import com.example.myprinterapp.scanner.BluetoothScannerService
+import com.example.myprinterapp.scanner.ScannerState
 import com.example.myprinterapp.data.db.PrintLogEntry
 import com.example.myprinterapp.data.repo.PrintLogRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -20,6 +23,7 @@ import javax.inject.Inject
 @HiltViewModel
 class AcceptViewModel @Inject constructor(
     private val printerService: PrinterService,
+    val scannerService: BluetoothScannerService,
     private val printLogRepository: PrintLogRepository
 ) : ViewModel() {
 
@@ -40,6 +44,9 @@ class AcceptViewModel @Inject constructor(
     // Состояние принтера
     val printerConnectionState: StateFlow<ConnectionState> = printerService.connectionState
 
+    // Состояние сканера
+    val scannerConnectionState: StateFlow<ScannerState> = scannerService.scannerState
+
     // История последних операций
     private val _lastOperations = MutableStateFlow<List<AcceptanceRecord>>(emptyList())
     val lastOperations: StateFlow<List<AcceptanceRecord>> = _lastOperations.asStateFlow()
@@ -52,11 +59,32 @@ class AcceptViewModel @Inject constructor(
     private val _editingRecord = MutableStateFlow<AcceptanceRecord?>(null)
     val editingRecord: StateFlow<AcceptanceRecord?> = _editingRecord.asStateFlow()
 
-    // Больше не нужен расширенный сервис, так как основной сервис поддерживает форматы
-
     init {
         // Загружаем последние операции при инициализации
         loadLastOperations()
+
+        // Подписываемся на изменения от сканера
+        observeScannerInput()
+
+        // Принудительно проверяем подключение сканера
+        viewModelScope.launch {
+            delay(1000) // Даем время на инициализацию
+            scannerService.forceCheckConnection()
+        }
+    }
+
+    /**
+     * Наблюдение за вводом от сканера
+     */
+    private fun observeScannerInput() {
+        viewModelScope.launch {
+            scannerService.lastScannedCode.collect { code ->
+                code?.let {
+                    onBarcodeDetected(it)
+                    scannerService.clearLastScannedCode()
+                }
+            }
+        }
     }
 
     /**
@@ -273,6 +301,18 @@ class AcceptViewModel @Inject constructor(
             // Пока используем пустой список
             _lastOperations.value = emptyList()
         }
+    }
+
+    /**
+     * Получение инструкций по настройке сканера
+     */
+    fun getScannerSetupInstructions(): String {
+        return scannerService.getSetupInstructions()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        scannerService.cleanup()
     }
 }
 

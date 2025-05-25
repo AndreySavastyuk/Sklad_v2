@@ -5,12 +5,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
-
-import android.content.Context
 import android.util.Log
-
-import com.example.myprinterapp.data.repo.PrintLogRepository
-
 
 /**
  * Базовый интерфейс для форматов этикеток
@@ -31,6 +26,10 @@ interface LabelFormat {
 
 /**
  * Формат этикетки 57x40 мм для приемки
+ * Основан на исходной разметке из .prn файла с точными координатами
+ */
+/**
+ * Формат этикетки 57x40 мм для приемки
  */
 class AcceptanceLabelFormat57x40 : LabelFormat {
     override val widthMm = 57.0
@@ -42,11 +41,9 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
 
-        // Настройки отступов
         val margin = 8f
-        val qrSize = 140 // Фиксированный размер QR
 
-        // Внешняя рамка
+        // Рамка этикетки
         val borderPaint = Paint().apply {
             color = Color.BLACK
             style = Paint.Style.STROKE
@@ -54,135 +51,112 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
         }
         canvas.drawRect(1f, 1f, widthPx - 1f, heightPx - 1f, borderPaint)
 
-        // 1. QR-код слева (жестко зафиксирован)
-        val qrX = margin.toInt()
-        val qrY = ((heightPx - qrSize) / 2).toInt()
+        // QR-код
+        val qrX = 16f
+        val qrY = 95f
+        val qrSize = 200
         val qrBitmap = generateQRCode(data.qrData, qrSize)
-        canvas.drawBitmap(qrBitmap, qrX.toFloat(), qrY.toFloat(), null)
+        canvas.drawBitmap(qrBitmap, qrX, qrY, null)
 
-        // Область справа от QR
-        val rightAreaStartX = qrX + qrSize + margin
-        val rightAreaWidth = widthPx - rightAreaStartX - margin
-        val rightAreaCenterX = rightAreaStartX + rightAreaWidth / 2
-
-        // 2. Обозначение детали (сверху по центру между QR и верхним краем)
+        // Номер детали
         val partNumberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             typeface = Typeface.create("Arial", Typeface.BOLD)
-            textAlign = Paint.Align.CENTER
+            textSize = 45f // Увеличен размер с 38f до 42f
+            textAlign = Paint.Align.CENTER // Центрирование текста
         }
 
-        // Определяем размер шрифта для обозначения
-        var partNumberSize = 24f
-        partNumberPaint.textSize = partNumberSize
-        val maxPartNumberWidth = rightAreaWidth * 0.9f // 90% ширины области
+// Устанавливаем X позицию в центр этикетки
+        val centerX = widthPx / 2f
 
-        while (partNumberPaint.measureText(data.partNumber) > maxPartNumberWidth && partNumberSize > 12f) {
-            partNumberSize -= 0.5f
-            partNumberPaint.textSize = partNumberSize
+// Адаптивное масштабирование текста
+        var fontSize = 42f
+        partNumberPaint.textSize = fontSize
+        var textWidth = partNumberPaint.measureText(data.partNumber)
+        val maxWidth = widthPx - 16f // Учитываем небольшие отступы по бокам
+
+// Если текст не помещается, уменьшаем размер шрифта
+        while (textWidth > maxWidth && fontSize > 20f) {
+            fontSize -= 2f
+            partNumberPaint.textSize = fontSize
+            textWidth = partNumberPaint.measureText(data.partNumber)
         }
 
-        // Позиция Y для обозначения (между QR и верхним краем)
-        val partNumberY = qrY / 2 + partNumberPaint.textSize / 2
-        canvas.drawText(data.partNumber, rightAreaCenterX, partNumberY, partNumberPaint)
+// Рисуем текст по центру этикетки
+        canvas.drawText(data.partNumber, centerX, 47f, partNumberPaint)
 
-        // 3. Наименование детали (под обозначением)
-        val namePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 20f
-            typeface = Typeface.create("Arial", Typeface.NORMAL)
-            textAlign = Paint.Align.CENTER
-        }
-
-        // Проверяем, нужен ли перенос для наименования
-        val nameLines = if (namePaint.measureText(data.description) > rightAreaWidth * 0.9f) {
-            wrapTextCenter(data.description, namePaint, rightAreaWidth * 0.9f)
-        } else {
-            listOf(data.description)
-        }
-
-        // Если 2 строки, уменьшаем размер шрифта
-        if (nameLines.size > 1) {
-            namePaint.textSize = 16f
-        }
-
-        // Рисуем наименование
-        var nameY = partNumberY + partNumberPaint.textSize + 8f
-        nameLines.take(2).forEach { line ->
-            canvas.drawText(line, rightAreaCenterX, nameY, namePaint)
-            nameY += namePaint.textSize + 2f
-        }
-
-        // 4. Номер заказа (внизу справа)
-        val orderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 20f
-            typeface = Typeface.create("Arial", Typeface.NORMAL)
-            textAlign = Paint.Align.CENTER
-        }
-
-        // Позиция для заказа
-        val orderY = heightPx - margin - 70f
-        canvas.drawText(data.orderNumber, rightAreaCenterX, orderY, orderPaint)
-
-        // 5. Ячейка в рамке (самый низ)
-        val cellBoxHeight = 40f
-        val cellBoxWidth = 80f
-        val cellBoxX = rightAreaCenterX - cellBoxWidth / 2
-        val cellBoxY = heightPx - cellBoxHeight - margin
-
-        // Тонкая рамка для ячейки
+        // Рамка ячейки
+        val cellBoxX = 233f
+        val cellBoxY = 177f
+        val cellBoxWidth = 195f
+        val cellBoxHeight = 119f
         val cellBorderPaint = Paint().apply {
             color = Color.BLACK
             style = Paint.Style.STROKE
-            strokeWidth = 1f
+            strokeWidth = 2f
         }
         canvas.drawRect(cellBoxX, cellBoxY, cellBoxX + cellBoxWidth, cellBoxY + cellBoxHeight, cellBorderPaint)
 
         // Текст ячейки
         val cellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            textSize = 36f
+            textSize = 79f
             typeface = Typeface.create("Arial", Typeface.BOLD)
             textAlign = Paint.Align.CENTER
         }
         val cellTextY = cellBoxY + (cellBoxHeight + cellPaint.textSize) / 2 - 6f
-        canvas.drawText(data.location, rightAreaCenterX, cellTextY, cellPaint)
+        canvas.drawText(data.location, cellBoxX + cellBoxWidth / 2, cellTextY, cellPaint)
+
+        // Наименование детали
+        val namePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 18f
+            typeface = Typeface.create("Arial", Typeface.NORMAL)
+        }
+        canvas.drawText(data.description, 243f, 82f, namePaint)
+
+        // Номер заказа
+        val orderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 28f
+            typeface = Typeface.create("Arial", Typeface.NORMAL)
+        }
+        canvas.drawText(data.orderNumber, 223f, 154f, orderPaint)
+
+        // Количество
+        val quantityPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 12f
+            typeface = Typeface.create("Arial", Typeface.NORMAL)
+        }
+        data.quantity?.let { qty ->
+            canvas.drawText("Кол-во: $qty шт", 21f, 87f, quantityPaint)
+        }
+
+        // Дата
+        val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 10f
+            typeface = Typeface.create("Arial", Typeface.NORMAL)
+        }
+        data.acceptanceDate?.let { date ->
+            canvas.drawText("Дата: $date", 110f, 86f, datePaint)
+        }
 
         return bitmap
     }
-
-    /**
-     * Перенос текста по центру
-     */
-    private fun wrapTextCenter(text: String, paint: Paint, maxWidth: Float): List<String> {
-        val words = text.split(" ")
-        if (words.size == 1) {
-            // Если одно слово, возвращаем как есть
-            return listOf(text)
-        }
-
-        // Пытаемся разделить на 2 примерно равные части
-        val midPoint = words.size / 2
-        val firstLine = words.subList(0, midPoint).joinToString(" ")
-        val secondLine = words.subList(midPoint, words.size).joinToString(" ")
-
-        // Проверяем, помещаются ли обе строки
-        if (paint.measureText(firstLine) <= maxWidth && paint.measureText(secondLine) <= maxWidth) {
-            return listOf(firstLine, secondLine)
-        }
-
-        // Иначе используем стандартный перенос
-        return wrapText(text, paint, maxWidth)
     }
 
+    /**
+     * Генерация QR-кода точно как в оригинальной разметке
+     */
     private fun generateQRCode(data: String, size: Int): Bitmap {
         return try {
             val writer = QRCodeWriter()
             val hints = HashMap<EncodeHintType, Any>()
             hints[EncodeHintType.CHARACTER_SET] = "UTF-8"
             hints[EncodeHintType.ERROR_CORRECTION] = ErrorCorrectionLevel.M
-            hints[EncodeHintType.MARGIN] = 0
+            hints[EncodeHintType.MARGIN] = 1
 
             val bitMatrix = writer.encode(data, BarcodeFormat.QR_CODE, size, size, hints)
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
@@ -194,12 +168,16 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
             }
             bitmap
         } catch (e: Exception) {
+            // Создаем пустой белый квадрат в случае ошибки
             Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).apply {
                 eraseColor(Color.WHITE)
             }
         }
     }
 
+    /**
+     * Функция переноса текста на строки
+     */
     private fun wrapText(text: String, paint: Paint, maxWidth: Float): List<String> {
         val words = text.split(" ")
         val lines = mutableListOf<String>()
@@ -214,6 +192,12 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
                     lines.add(currentLine)
                 }
                 currentLine = word
+
+                // Если даже одно слово не помещается, принудительно добавляем его
+                if (paint.measureText(currentLine) > maxWidth) {
+                    lines.add(currentLine)
+                    currentLine = ""
+                }
             }
         }
 
@@ -223,7 +207,7 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
 
         return lines
     }
-}
+
 
 /**
  * Формат этикетки для комплектации
@@ -364,8 +348,6 @@ enum class LabelType {
         }
     }
 }
-
-
 
 /**
  * Расширенный сервис печати с поддержкой форматов

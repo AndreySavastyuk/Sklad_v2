@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
                         val cell by acceptVm.cellCode.collectAsState()
                         val uiState by acceptVm.uiState.collectAsState()
                         val printerState by acceptVm.printerConnectionState.collectAsState()
+                        val scannerState by acceptVm.scannerConnectionState.collectAsState()
 
                         AcceptScreen(
                             scannedValue = scanned,
@@ -78,7 +79,10 @@ class MainActivity : ComponentActivity() {
                             cellCode = cell,
                             uiState = uiState,
                             printerConnectionState = printerState,
-                            onScanWithScanner = {/* TODO */},
+                            scannerConnectionState = scannerState,
+                            onScanWithScanner = { code ->
+                                acceptVm.onBarcodeDetected(code)
+                            },
                             onScanWithCamera = {
                                 /* Переходим к камере, но оставляем Accept в back-stack */
                                 navController.navigate("camera")
