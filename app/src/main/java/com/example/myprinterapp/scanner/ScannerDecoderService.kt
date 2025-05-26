@@ -1,5 +1,6 @@
 package com.example.myprinterapp.scanner
 
+import android.util.Log
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -9,6 +10,20 @@ import javax.inject.Singleton
  */
 @Singleton
 class ScannerDecoderService @Inject constructor() {
+
+    companion object {
+        private const val TAG = "ScannerDecoder"
+    }
+
+    /**
+     * Структура данных HID POS
+     */
+    data class HidPosData(
+        val symbology: String,      // Тип штрих-кода
+        val length: Int,            // Длина данных
+        val data: String,           // Сами данные
+        val rawBytes: ByteArray?    // Сырые байты
+    )
 
     /**
      * Декодирует строку, полученную со сканера
@@ -33,6 +48,152 @@ class ScannerDecoderService @Inject constructor() {
 
             // Иначе возвращаем как есть
             else -> input
+        }
+    }
+
+    /**
+     * Декодирование данных из HID POS формата
+     */
+    fun decodeHidPosData(input: String): HidPosData? {
+        Log.d(TAG, "Decoding HID POS input: $input")
+        Log.d(TAG, "Input length: ${input.length}")
+        Log.d(TAG, "Input bytes: ${input.toByteArray().contentToString()}")
+
+        return try {
+            // В HID POS режиме данные могут приходить с префиксами
+            // Формат зависит от настроек сканера
+
+            // Проверяем на наличие AIM ID (если включен)
+            if (input.startsWith("]")) {
+                return decodeWithAimId(input)
+            }
+
+            // Проверяем на наличие Code ID с разделителем GS (Group Separator)
+            if (input.length > 2 && input.contains('\u001D')) {
+                return decodeWithCodeId(input)
+            }
+
+            // Проверяем на простой Code ID (первый символ - идентификатор)
+            if (input.length > 1 && !input[0].isLetterOrDigit() && input[0].code < 128) {
+                return decodeWithSimpleCodeId(input)
+            }
+
+            // Если нет специальных идентификаторов, пробуем декодировать как обычные данные
+            val decodedData = decode(input)
+            HidPosData(
+                symbology = "UNKNOWN",
+                length = decodedData.length,
+                data = decodedData,
+                rawBytes = input.toByteArray()
+            )
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error decoding HID POS data", e)
+            null
+        }
+    }
+
+    /**
+     * Декодирование с AIM ID
+     * Формат: ]X0 данные, где X - тип кода
+     */
+    private fun decodeWithAimId(input: String): HidPosData {
+        val aimId = if (input.length >= 3) input.substring(0, 3) else ""
+        val rawData = if (input.length > 3) input.substring(3) else ""
+
+        val symbology = when (aimId) {
+            "]Q0", "]Q1", "]Q2", "]Q3", "]Q4", "]Q5" -> "QR Code"
+            "]C0", "]C1", "]C2", "]C3", "]C4" -> "Code 128"
+            "]E0", "]E1", "]E2", "]E3", "]E4" -> "EAN-13"
+            "]A0", "]A1", "]A2", "]A3", "]A4" -> "Code 39"
+            "]d0", "]d1", "]d2" -> "Data Matrix"
+            "]I0", "]I1", "]I2", "]I3" -> "Code 93"
+            "]G0", "]G1", "]G2", "]G3" -> "Code 11"
+            "]X0" -> "Code 39 Full ASCII"
+            "]U0", "]U1", "]U2", "]U3" -> "MaxiCode"
+            else -> "Unknown ($aimId)"
+        }
+
+        Log.d(TAG, "AIM ID detected: $aimId = $symbology")
+
+        val decodedData = decode(rawData)
+
+        return HidPosData(
+            symbology = symbology,
+            length = decodedData.length,
+            data = decodedData,
+            rawBytes = rawData.toByteArray()
+        )
+    }
+
+    /**
+     * Декодирование с Code ID и разделителем GS
+     */
+    private fun decodeWithCodeId(input: String): HidPosData {
+        val gsIndex = input.indexOf('\u001D')
+        val codeId = if (gsIndex > 0) input.substring(0, gsIndex) else input[0].toString()
+        val rawData = if (gsIndex > 0 && gsIndex < input.length - 1) {
+            input.substring(gsIndex + 1)
+        } else {
+            input.substring(1)
+        }
+
+        val symbology = decodeSymbologyFromCodeId(codeId)
+
+        Log.d(TAG, "Code ID detected: $codeId = $symbology")
+
+        val decodedData = decode(rawData)
+
+        return HidPosData(
+            symbology = symbology,
+            length = decodedData.length,
+            data = decodedData,
+            rawBytes = rawData.toByteArray()
+        )
+    }
+
+    /**
+     * Декодирование с простым Code ID (без разделителя)
+     */
+    private fun decodeWithSimpleCodeId(input: String): HidPosData {
+        val codeId = input[0].toString()
+        val rawData = input.substring(1)
+
+        val symbology = decodeSymbologyFromCodeId(codeId)
+
+        Log.d(TAG, "Simple Code ID detected: $codeId = $symbology")
+
+        val decodedData = decode(rawData)
+
+        return HidPosData(
+            symbology = symbology,
+            length = decodedData.length,
+            data = decodedData,
+            rawBytes = rawData.toByteArray()
+        )
+    }
+
+    /**
+     * Определение типа штрих-кода по Code ID
+     */
+    private fun decodeSymbologyFromCodeId(codeId: String): String {
+        return when (codeId.firstOrNull()) {
+            'q', 'Q' -> "QR Code"
+            'j', 'J' -> "Code 128"
+            'd', 'D' -> "EAN-13"
+            'b', 'B' -> "Code 39"
+            'u', 'U' -> "Data Matrix"
+            'e', 'E' -> "EAN-8"
+            'c', 'C' -> "UPC-A"
+            'a', 'A' -> "UPC-E"
+            'i', 'I' -> "Code 93"
+            'g', 'G' -> "Code 11"
+            'f', 'F' -> "Codabar"
+            'p', 'P' -> "PDF417"
+            'r', 'R' -> "GS1 DataBar"
+            'm', 'M' -> "MSI"
+            'z', 'Z' -> "Aztec Code"
+            else -> "Unknown ($codeId)"
         }
     }
 
@@ -123,6 +284,45 @@ class ScannerDecoderService @Inject constructor() {
                 input // Возвращаем оригинал если не удалось
             }
         }
+    }
+
+    /**
+     * Проверка на HEX кодирование (улучшенная версия)
+     */
+    fun isHexEncoded(input: String): Boolean {
+        // Проверяем различные форматы HEX
+        return input.contains("\\x") ||
+                input.contains("%") ||
+                (input.length % 2 == 0 && input.length >= 4 &&
+                        input.all { it in '0'..'9' || it in 'A'..'F' || it in 'a'..'f' })
+    }
+
+    /**
+     * Тестирование декодера HID POS
+     */
+    fun testHidPosDecoder() {
+        val testCases = listOf(
+            // Обычные данные
+            "test=2024/001=PART-123=Деталь тестовая",
+            // С AIM ID для QR
+            "]Q0test=2024/001=PART-123=Деталь",
+            // С Code ID и GS разделителем
+            "q\u001Dtest=2024/001=PART-123=Test",
+            // HEX формат
+            "\\xD2\\xE5\\xF1\\xF2",
+            // URL encoded
+            "%D0%A2%D0%B5%D1%81%D1%82",
+            // Простой Code ID
+            "qTEST123"
+        )
+
+        Log.d(TAG, "=== HID POS DECODER TEST START ===")
+        testCases.forEach { testCase ->
+            Log.d(TAG, "Testing: $testCase")
+            val result = decodeHidPosData(testCase)
+            Log.d(TAG, "Result: $result")
+        }
+        Log.d(TAG, "=== HID POS DECODER TEST END ===")
     }
 
     /**

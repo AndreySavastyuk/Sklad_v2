@@ -1,5 +1,6 @@
 package com.example.myprinterapp.ui
 
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -50,10 +51,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalTextStyle
+import com.example.myprinterapp.BuildConfig
 import com.example.myprinterapp.ui.components.ScannerInputField
 import com.example.myprinterapp.ui.components.ScannerSetupInstructions
 import com.example.myprinterapp.ui.components.ScannerDebugDialog
 import com.example.myprinterapp.scanner.ScannerState
+import com.example.myprinterapp.ui.components.ScannerDebugPanel
 
 // Утилита для затемнения цвета (простой вариант)
 private fun Color.darker(factor: Float = 0.8f): Color {
@@ -470,6 +473,63 @@ fun AcceptScreen(
         ScannerDebugDialog(
             scannerService = viewModel.scannerService,
             onDismiss = { showScannerDebug = false }
+        )
+    }
+    if (BuildConfig.DEBUG) {
+        var showDebugPanel by remember { mutableStateOf(false) }
+
+        // Кнопка для показа/скрытия панели отладки
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(
+                onClick = { showDebugPanel = !showDebugPanel }
+            ) {
+                Icon(
+                    if (showDebugPanel) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    if (showDebugPanel) "Скрыть отладку" else "Показать отладку HID POS",
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        // Панель отладки
+        AnimatedVisibility(
+            visible = showDebugPanel,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            ScannerDebugPanel(
+                modifier = Modifier.padding(vertical = 8.dp),
+                onTestDecoder = {
+                    // Запускаем тест декодера
+                    viewModel.testHidPosDecoder()
+                }
+            )
+        }
+    }
+
+// Обновите поле ввода сканера для поддержки HID POS:
+    if (scannerConnectionState == ScannerState.CONNECTED) {
+        ScannerInputField(
+            value = scannerInputValue,
+            onValueChange = { scannerInputValue = it },
+            onScanComplete = { code ->
+                // Обрабатываем через HID POS декодер
+                viewModel.onHidPosDataReceived(code)
+                scannerInputValue = ""
+            },
+            label = "Сканируйте QR-код",
+            placeholder = "Наведите сканер HR32-BT и нажмите кнопку",
+            isConnected = true,
+            autoFocus = true,
+            clearAfterScan = true
         )
     }
 

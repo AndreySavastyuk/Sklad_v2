@@ -1,5 +1,6 @@
 package com.example.myprinterapp.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myprinterapp.printer.LabelData
@@ -10,6 +11,7 @@ import com.example.myprinterapp.scanner.BluetoothScannerService
 import com.example.myprinterapp.scanner.ScannerState
 import com.example.myprinterapp.data.db.PrintLogEntry
 import com.example.myprinterapp.data.repo.PrintLogRepository
+import com.example.myprinterapp.scanner.ScannerDecoderService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,7 +26,8 @@ import javax.inject.Inject
 class AcceptViewModel @Inject constructor(
     private val printerService: PrinterService,
     val scannerService: BluetoothScannerService,
-    private val printLogRepository: PrintLogRepository
+    private val printLogRepository: PrintLogRepository,
+    private val scannerDecoder: ScannerDecoderService // Добавьте эту строку
 ) : ViewModel() {
 
     // Состояние полей ввода
@@ -80,7 +83,8 @@ class AcceptViewModel @Inject constructor(
         viewModelScope.launch {
             scannerService.lastScannedCode.collect { code ->
                 code?.let {
-                    onBarcodeDetected(it)
+                    // Пробуем сначала HID POS декодирование
+                    onHidPosDataReceived(it)
                     scannerService.clearLastScannedCode()
                 }
             }
@@ -94,7 +98,44 @@ class AcceptViewModel @Inject constructor(
         _scannedValue.value = code
         _uiState.value = AcceptUiState.Idle
     }
+    fun onHidPosDataReceived(rawData: String) {
+        viewModelScope.launch {
+            try {
+                // Сначала пробуем декодировать как HID POS
+                val hidPosData = scannerDecoder.decodeHidPosData(rawData)
 
+                if (hidPosData != null) {
+                    Log.d("AcceptViewModel", "HID POS decoded: ${hidPosData.symbology} - ${hidPosData.data}")
+
+                    // Если это QR код, обрабатываем как обычно
+                    if (hidPosData.symbology.contains("QR", ignoreCase = true)) {
+                        onBarcodeDetected(hidPosData.data)
+                    } else {
+                        // Для других типов кодов можем показать предупреждение
+                        _uiState.value = AcceptUiState.Error(
+                            "Отсканирован ${hidPosData.symbology}. Пожалуйста, отсканируйте QR-код."
+                        )
+                    }
+                } else {
+                    // Если не удалось декодировать как HID POS, пробуем обычное декодирование
+                    val decodedData = scannerDecoder.decode(rawData)
+                    onBarcodeDetected(decodedData)
+                }
+            } catch (e: Exception) {
+                Log.e("AcceptViewModel", "Error processing HID POS data", e)
+                _uiState.value = AcceptUiState.Error("Ошибка обработки данных со сканера")
+            }
+        }
+    }
+
+    /**
+     * Тестирование HID POS декодера
+     */
+    fun testHidPosDecoder() {
+        viewModelScope.launch {
+            scannerDecoder.testHidPosDecoder()
+        }
+    }
     /**
      * Изменение количества
      */
