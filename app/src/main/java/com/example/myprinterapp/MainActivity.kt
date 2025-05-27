@@ -12,6 +12,7 @@ import androidx.navigation.compose.*
 import com.example.myprinterapp.ui.*
 import com.example.myprinterapp.ui.log.PrintLogScreen
 import com.example.myprinterapp.ui.pick.*
+import com.example.myprinterapp.ui.demo.ScannerTestDemo
 import com.example.myprinterapp.ui.settings.SettingsScreen
 import com.example.myprinterapp.ui.theme.MyPrinterAppTheme
 import com.example.myprinterapp.viewmodel.AcceptViewModel
@@ -49,6 +50,9 @@ class MainActivity : ComponentActivity() {
                             },
                             onSettingsClick = {
                                 navController.navigate("settings")     // настройки
+                            },
+                            onScannerTestClick = {
+                                navController.navigate("scanner_config") // тестирование сканера
                             }
                         )
                     }
@@ -61,6 +65,13 @@ class MainActivity : ComponentActivity() {
                     /* --- Настройки --- */
                     composable("settings") {
                         SettingsScreen(onBack = { navController.popBackStack() })
+                    }
+
+                    /* --- Настройка сканера --- */
+                    composable("scanner_config") {
+                        ScannerTestDemo(
+                            onBack = { navController.popBackStack() }
+                        )
                     }
 
                     /* --- Приёмка --- */
@@ -93,7 +104,9 @@ class MainActivity : ComponentActivity() {
                             onResetInputFields = acceptVm::resetInputFields,
                             onClearMessage = acceptVm::clearMessage,
                             onBack = { navController.popBackStack() },
-                            onNavigateToSettings = { navController.navigate("settings") }
+                            onNavigateToSettings = {
+                                navController.navigate("settings")
+                            }
                         )
                     }
 

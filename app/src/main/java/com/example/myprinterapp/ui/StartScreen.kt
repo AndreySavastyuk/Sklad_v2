@@ -34,6 +34,7 @@ fun StartScreen(
     onPickClick: () -> Unit,
     onJournalClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onScannerTestClick: (() -> Unit)? = null, // Новый параметр для тестирования сканера
     logoIcon: ImageVector = Icons.Filled.Warehouse
 ) {
     val context = LocalContext.current
@@ -127,13 +128,34 @@ fun StartScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            StartScreenButton(
-                text = "Настройки",
-                onClick = onSettingsClick,
-                modifier = buttonModifier,
-                border = buttonBorder,
-                icon = Icons.Filled.Settings
-            )
+            // Вторая строка кнопок
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StartScreenButton(
+                    text = "Настройки",
+                    onClick = onSettingsClick,
+                    modifier = Modifier.weight(1f).height(72.dp),
+                    border = buttonBorder,
+                    icon = Icons.Filled.Settings
+                )
+
+                // Кнопка тестирования сканера (если доступна)
+                if (onScannerTestClick != null) {
+                    StartScreenButton(
+                        text = "Тест сканера",
+                        onClick = onScannerTestClick,
+                        modifier = Modifier.weight(1f).height(72.dp),
+                        border = buttonBorder,
+                        icon = Icons.Filled.Scanner,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -186,7 +208,13 @@ private fun StartScreenButton(
     modifier: Modifier = Modifier,
     border: BorderStroke? = null,
     enabled: Boolean = true,
-    icon: ImageVector? = null
+    icon: ImageVector? = null,
+    colors: ButtonColors = ButtonDefaults.buttonColors(
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.darker(0.9f),
+        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    )
 ) {
     Button(
         onClick = onClick,
@@ -194,12 +222,7 @@ private fun StartScreenButton(
         enabled = enabled,
         shape = MaterialTheme.shapes.medium,
         border = border,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.darker(0.9f),
-            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-        ),
+        colors = colors,
         contentPadding = PaddingValues(horizontal = 24.dp)
     ) {
         if (icon != null) {
@@ -226,7 +249,8 @@ fun StartScreenPreview() {
             onReceiveClick = {},
             onPickClick = {},
             onJournalClick = {},
-            onSettingsClick = {}
+            onSettingsClick = {},
+            onScannerTestClick = {}
         )
     }
 }

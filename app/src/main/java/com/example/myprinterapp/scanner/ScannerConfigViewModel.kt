@@ -1,5 +1,7 @@
-package com.example.myprinterapp.ui.scanner
+package com.example.myprinterapp.scanner
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -7,6 +9,7 @@ import com.example.myprinterapp.scanner.BluetoothScannerService
 import com.example.myprinterapp.scanner.ScannerDecoderService
 import com.example.myprinterapp.scanner.ScannerState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,13 +21,17 @@ import javax.inject.Inject
 @HiltViewModel
 class ScannerConfigViewModel @Inject constructor(
     private val scannerService: BluetoothScannerService,
-    private val decoderService: ScannerDecoderService
+    private val decoderService: ScannerDecoderService,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "ScannerConfigVM"
+        private const val PREFS_NAME = "scanner_config_prefs"
         private const val PREFS_KEY_SCANNER_MODE = "scanner_mode"
     }
+
+    private val sharedPrefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     // Состояние подключения
     val scannerState: StateFlow<ScannerState> = scannerService.scannerState
@@ -70,8 +77,19 @@ class ScannerConfigViewModel @Inject constructor(
      * Загрузка сохраненного режима сканера
      */
     private fun loadSavedMode() {
-        // TODO: Загрузить из SharedPreferences
-        _currentScannerMode.value = ScannerMode.HID_STANDARD
+        val savedMode = sharedPrefs.getString(PREFS_KEY_SCANNER_MODE, ScannerMode.HID_STANDARD.name)
+        _currentScannerMode.value = try {
+            ScannerMode.valueOf(savedMode ?: ScannerMode.HID_STANDARD.name)
+        } catch (e: IllegalArgumentException) {
+            ScannerMode.HID_STANDARD
+        }
+    }
+
+    /**
+     * Сохранение режима сканера
+     */
+    private fun saveScannerMode(mode: ScannerMode) {
+        sharedPrefs.edit().putString(PREFS_KEY_SCANNER_MODE, mode.name).apply()
     }
 
     /**
@@ -134,8 +152,7 @@ class ScannerConfigViewModel @Inject constructor(
         viewModelScope.launch {
             Log.d(TAG, "Applying scanner mode: ${mode.displayName}")
             _currentScannerMode.value = mode
-
-            // TODO: Сохранить в SharedPreferences
+            saveScannerMode(mode)
 
             // Показываем уведомление
             addTestResult(
@@ -166,7 +183,10 @@ class ScannerConfigViewModel @Inject constructor(
 
                 // Декодируем в зависимости от режима
                 val decoded = when (currentMode) {
-                    ScannerMode.HID_STANDARD -> decoderService.decode(input)
+                    ScannerMode.HID_STANDARD -> {
+                        val decodedText = decoderService.decode(input)
+                        DecodedData(decodedText, "Unknown", input.toByteArray())
+                    }
                     ScannerMode.HID_WITH_AIM_ID -> decodeWithAimId(input)
                     ScannerMode.HID_WITH_CODE_ID -> decodeWithCodeId(input)
                     ScannerMode.HID_HEX_MODE -> decodeHexMode(input)
@@ -386,6 +406,24 @@ class ScannerConfigViewModel @Inject constructor(
 
         return sb.toString()
     }
+
+    /**
+     * Получение инструкций для текущего режима
+     */
+    fun getSetupInstructionsForMode(mode: ScannerMode): String {
+        return """
+            Инструкция для режима "${mode.displayName}":
+            
+            ${mode.setupSteps.mapIndexed { index, step ->
+            "${index + 1}. $step"
+        }.joinToString("\n")}
+            
+            Примечания:
+            ${mode.features.joinToString("\n") { feature ->
+            "• ${feature.name}: ${if (feature.supported) "Поддерживается" else "Не поддерживается"}"
+        }}
+        """.trimIndent()
+    }
 }
 
 // Вспомогательные модели данных
@@ -393,10 +431,133 @@ data class DecodedData(
     val data: String,
     val codeType: String,
     val rawBytes: ByteArray?
-)
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as DecodedData
+
+        if (data != other.data) return false
+        if (codeType != other.codeType) return false
+        if (rawBytes != null) {
+            if (other.rawBytes == null) return false
+            if (!rawBytes.contentEquals(other.rawBytes)) return false
+        } else if (other.rawBytes != null) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = data.hashCode()
+        result = 31 * result + codeType.hashCode()
+        result = 31 * result + (rawBytes?.contentHashCode() ?: 0)
+        return result
+    }
+}
 
 data class TestQrCode(
     val name: String,
     val data: String,
     val description: String
+)
+
+// Enum для режимов сканера
+enum class ScannerMode(
+    val displayName: String,
+    val description: String,
+    val setupSteps: List<String>,
+    val features: List<Feature> = emptyList()
+) {
+    HID_STANDARD(
+        displayName = "HID стандартный",
+        description = "Базовый режим HID без дополнительных идентификаторов",
+        setupSteps = listOf(
+            "Отсканируйте 'Enter Setup'",
+            "Отсканируйте 'Bluetooth HID Mode'",
+            "Отсканируйте 'Standard Format'",
+            "Отсканируйте 'Exit Setup'"
+        ),
+        features = listOf(
+            Feature("Простая настройка", true),
+            Feature("Кириллица", false),
+            Feature("Идентификация типа кода", false)
+        )
+    ),
+    HID_WITH_AIM_ID(
+        displayName = "HID с AIM ID",
+        description = "HID режим с идентификатором типа штрих-кода (]X0)",
+        setupSteps = listOf(
+            "Отсканируйте 'Enter Setup'",
+            "Отсканируйте 'Bluetooth HID Mode'",
+            "Отсканируйте 'AIM ID' → 'Enable'",
+            "Отсканируйте 'Exit Setup'"
+        ),
+        features = listOf(
+            Feature("Определение типа кода", true),
+            Feature("Стандарт ISO/IEC", true),
+            Feature("Кириллица", false)
+        )
+    ),
+    HID_WITH_CODE_ID(
+        displayName = "HID с Code ID",
+        description = "HID режим с простым идентификатором кода",
+        setupSteps = listOf(
+            "Отсканируйте 'Enter Setup'",
+            "Отсканируйте 'Bluetooth HID Mode'",
+            "Отсканируйте 'Code ID' → 'Enable'",
+            "Отсканируйте 'Exit Setup'"
+        ),
+        features = listOf(
+            Feature("Компактный ID", true),
+            Feature("Быстрая обработка", true),
+            Feature("Кириллица", false)
+        )
+    ),
+    HID_HEX_MODE(
+        displayName = "HID HEX режим",
+        description = "Передача данных в HEX формате для поддержки кириллицы",
+        setupSteps = listOf(
+            "Отсканируйте 'Enter Setup'",
+            "Отсканируйте 'Bluetooth HID Mode'",
+            "Отсканируйте 'Data Format' → 'Hex String'",
+            "Отсканируйте 'Prefix' → '\\x'",
+            "Отсканируйте 'Exit Setup'"
+        ),
+        features = listOf(
+            Feature("Поддержка кириллицы", true),
+            Feature("Универсальная кодировка", true),
+            Feature("Увеличенный размер данных", false)
+        )
+    ),
+    SPP_MODE(
+        displayName = "SPP режим",
+        description = "Serial Port Profile для полной поддержки всех символов",
+        setupSteps = listOf(
+            "Отсканируйте 'Enter Setup'",
+            "Отсканируйте 'SPP Mode'",
+            "Отсканируйте 'Character Set' → 'UTF-8'",
+            "Отсканируйте 'Exit Setup'"
+        ),
+        features = listOf(
+            Feature("Полная поддержка UTF-8", true),
+            Feature("Кириллица", true),
+            Feature("Требует SPP подключение", false),
+            Feature("Не работает как клавиатура", false)
+        )
+    )
+}
+
+data class Feature(
+    val name: String,
+    val supported: Boolean
+)
+
+data class TestResult(
+    val timestamp: String,
+    val mode: ScannerMode,
+    val input: String,
+    val output: String,
+    val success: Boolean,
+    val details: String? = null
 )

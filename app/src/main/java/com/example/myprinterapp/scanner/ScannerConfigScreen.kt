@@ -21,6 +21,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.myprinterapp.scanner.ScannerState
+import com.example.myprinterapp.scanner.ScannerConfigViewModel
+import com.example.myprinterapp.scanner.ScannerMode
+import com.example.myprinterapp.scanner.Feature
+import com.example.myprinterapp.scanner.TestResult
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -281,7 +285,7 @@ private fun ScannerModeSelector(
                 )
             }
 
-            Divider()
+            HorizontalDivider()
 
             ScannerMode.values().forEach { mode ->
                 ModeSelectionItem(
@@ -489,7 +493,7 @@ private fun TestModeCard(
                     onClick = onStartTest,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Filled.Scanner, null, Modifier.size(20.dp))
+                    Icon(Icons.Filled.BugReport, null, Modifier.size(20.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Тест сканера")
                 }
@@ -757,7 +761,7 @@ private fun TestScannerDialog(
                     singleLine = true
                 )
 
-                Divider()
+                HorizontalDivider()
 
                 // Ручной ввод
                 OutlinedTextField(
@@ -875,103 +879,3 @@ private fun ConnectionStatusChip(state: ScannerState) {
         }
     }
 }
-
-// Модели данных
-enum class ScannerMode(
-    val displayName: String,
-    val description: String,
-    val setupSteps: List<String>,
-    val features: List<Feature> = emptyList()
-) {
-    HID_STANDARD(
-        displayName = "HID стандартный",
-        description = "Базовый режим HID без дополнительных идентификаторов",
-        setupSteps = listOf(
-            "Отсканируйте 'Enter Setup'",
-            "Отсканируйте 'Bluetooth HID Mode'",
-            "Отсканируйте 'Standard Format'",
-            "Отсканируйте 'Exit Setup'"
-        ),
-        features = listOf(
-            Feature("Простая настройка", true),
-            Feature("Кириллица", false),
-            Feature("Идентификация типа кода", false)
-        )
-    ),
-    HID_WITH_AIM_ID(
-        displayName = "HID с AIM ID",
-        description = "HID режим с идентификатором типа штрих-кода (]X0)",
-        setupSteps = listOf(
-            "Отсканируйте 'Enter Setup'",
-            "Отсканируйте 'Bluetooth HID Mode'",
-            "Отсканируйте 'AIM ID' → 'Enable'",
-            "Отсканируйте 'Exit Setup'"
-        ),
-        features = listOf(
-            Feature("Определение типа кода", true),
-            Feature("Стандарт ISO/IEC", true),
-            Feature("Кириллица", false)
-        )
-    ),
-    HID_WITH_CODE_ID(
-        displayName = "HID с Code ID",
-        description = "HID режим с простым идентификатором кода",
-        setupSteps = listOf(
-            "Отсканируйте 'Enter Setup'",
-            "Отсканируйте 'Bluetooth HID Mode'",
-            "Отсканируйте 'Code ID' → 'Enable'",
-            "Отсканируйте 'Exit Setup'"
-        ),
-        features = listOf(
-            Feature("Компактный ID", true),
-            Feature("Быстрая обработка", true),
-            Feature("Кириллица", false)
-        )
-    ),
-    HID_HEX_MODE(
-        displayName = "HID HEX режим",
-        description = "Передача данных в HEX формате для поддержки кириллицы",
-        setupSteps = listOf(
-            "Отсканируйте 'Enter Setup'",
-            "Отсканируйте 'Bluetooth HID Mode'",
-            "Отсканируйте 'Data Format' → 'Hex String'",
-            "Отсканируйте 'Prefix' → '\\x'",
-            "Отсканируйте 'Exit Setup'"
-        ),
-        features = listOf(
-            Feature("Поддержка кириллицы", true),
-            Feature("Универсальная кодировка", true),
-            Feature("Увеличенный размер данных", false)
-        )
-    ),
-    SPP_MODE(
-        displayName = "SPP режим",
-        description = "Serial Port Profile для полной поддержки всех символов",
-        setupSteps = listOf(
-            "Отсканируйте 'Enter Setup'",
-            "Отсканируйте 'SPP Mode'",
-            "Отсканируйте 'Character Set' → 'UTF-8'",
-            "Отсканируйте 'Exit Setup'"
-        ),
-        features = listOf(
-            Feature("Полная поддержка UTF-8", true),
-            Feature("Кириллица", true),
-            Feature("Требует SPP подключение", false),
-            Feature("Не работает как клавиатура", false)
-        )
-    )
-}
-
-data class Feature(
-    val name: String,
-    val supported: Boolean
-)
-
-data class TestResult(
-    val timestamp: String,
-    val mode: ScannerMode,
-    val input: String,
-    val output: String,
-    val success: Boolean,
-    val details: String? = null
-)
