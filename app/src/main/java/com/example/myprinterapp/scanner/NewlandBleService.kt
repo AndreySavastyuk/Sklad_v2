@@ -14,6 +14,7 @@ import javax.inject.Singleton
 
 /**
  * Сервис для работы со сканерами Newland через официальный BLE SDK
+ * Интегрирован с рабочим кодом из мини-приложения
  */
 @Singleton
 class NewlandBleService @Inject constructor(
@@ -45,7 +46,7 @@ class NewlandBleService @Inject constructor(
     private val _qrGenerationState = MutableStateFlow(QrGenerationState.IDLE)
     val qrGenerationState: StateFlow<QrGenerationState> = _qrGenerationState.asStateFlow()
 
-    // Observer для событий BLE
+    // Observer для событий BLE (используем проверенный код из мини-приложения)
     private val bleObserver = object : NlsBleDefaultEventObserver() {
         override fun onConnectionStateChanged(device: NlsBleDevice) {
             Log.d(TAG, "Connection state changed: ${device.connectionState}")
@@ -58,7 +59,7 @@ class NewlandBleService @Inject constructor(
                         address = device.address,
                         name = device.name ?: "Newland Scanner"
                     )
-                    // Автоматически начинаем прием данных
+                    // Автоматически начинаем прием данных (как в мини-приложении)
                     startScanning()
                 }
 
@@ -82,13 +83,20 @@ class NewlandBleService @Inject constructor(
         override fun onScanDataReceived(data: String) {
             Log.d(TAG, "Scan data received: $data")
 
-            // Данные приходят уже в UTF-8, включая кириллицу
-            _lastScannedData.value = ScannedData(
+            // Данные уже в UTF-8, включая кириллицу (проверено в мини-приложении)
+            val scannedData = ScannedData(
                 rawData = data,
                 decodedData = data, // Уже декодировано SDK
                 timestamp = System.currentTimeMillis(),
                 format = "QR_CODE" // SDK не всегда передает формат
             )
+
+            _lastScannedData.value = scannedData
+
+            // Логируем информацию о кириллице для отладки
+            if (data.any { it in '\u0400'..'\u04FF' }) {
+                Log.d(TAG, "Cyrillic characters detected in scan: $data")
+            }
         }
 
         override fun onError(errorCode: Int, errorMessage: String?) {
@@ -104,18 +112,19 @@ class NewlandBleService @Inject constructor(
 
     /**
      * Генерация QR-кода для сопряжения сканера
+     * Используем проверенный подход из мини-приложения
      */
     fun generatePairingQr() {
         Log.d(TAG, "Generating pairing QR code...")
         _qrGenerationState.value = QrGenerationState.GENERATING
 
-        bleManager.generateConnectCodeBitmap { bitmap ->
+        bleManager.generateConnectCodeBitmap { bitmap: Bitmap? ->
             if (bitmap != null) {
                 Log.i(TAG, "QR code generated successfully")
                 _pairingQrBitmap.value = bitmap
                 _qrGenerationState.value = QrGenerationState.READY
 
-                // Запускаем режим ожидания подключения
+                // Запускаем режим ожидания подключения (как в мини-приложении)
                 startFineScanToConnect()
             } else {
                 Log.e(TAG, "Failed to generate QR code")
@@ -181,6 +190,22 @@ class NewlandBleService @Inject constructor(
      */
     fun isConnected(): Boolean {
         return _connectionState.value == NewlandConnectionState.CONNECTED
+    }
+
+    /**
+     * Получить информацию о подключенном устройстве
+     */
+    fun getDeviceInfo(): NewlandDeviceInfo? {
+        return _connectedDevice.value
+    }
+
+    /**
+     * Проверка уже подключенных устройств
+     */
+    fun checkConnectedDevices() {
+        // В Newland SDK нет прямого способа проверить уже подключенные устройства
+        // Состояние отслеживается через observer
+        Log.d(TAG, "Current connection state: ${_connectionState.value}")
     }
 
     /**

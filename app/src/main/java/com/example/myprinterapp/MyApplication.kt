@@ -7,7 +7,6 @@ import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
 class MyApplication : Application() {
-
     override fun onCreate() {
         super.onCreate()
 
@@ -25,7 +24,6 @@ class MyApplication : Application() {
             NlsReportHelper.getInstance().setSaveLogEnable(BuildConfig.DEBUG)
 
         } catch (e: Exception) {
-            // Обрабатываем возможные ошибки инициализации
             e.printStackTrace()
         }
     }

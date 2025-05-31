@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -16,6 +17,7 @@ import com.example.myprinterapp.ui.demo.ScannerTestDemo
 import com.example.myprinterapp.ui.settings.SettingsScreen
 import com.example.myprinterapp.ui.theme.MyPrinterAppTheme
 import com.example.myprinterapp.viewmodel.AcceptViewModel
+import com.example.myprinterapp.viewmodel.NewlandScannerViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -26,6 +28,9 @@ class MainActivity : ComponentActivity() {
 
     /** Один Pick-VM на всё Activity, чтобы состояние сохранялось между экранами */
     private val pickVm: PickViewModel by viewModels()
+
+    /** BLE сканер ViewModel для всего приложения */
+    private val newlandVm: NewlandScannerViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,7 +79,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    /* --- Приёмка --- */
+                    /* --- Приёмка с интеграцией BLE --- */
                     composable("accept") {
                         /* подписываемся на VM */
                         val scanned by acceptVm.scannedValue.collectAsState()
@@ -106,7 +111,9 @@ class MainActivity : ComponentActivity() {
                             onBack = { navController.popBackStack() },
                             onNavigateToSettings = {
                                 navController.navigate("settings")
-                            }
+                            },
+                            viewModel = acceptVm,
+                            newlandViewModel = newlandVm // Передаем BLE ViewModel
                         )
                     }
 
@@ -130,14 +137,14 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    /* --- Список заданий («Комплектация») --- */
+                    /* --- Список заданий («Комплектация») с BLE поддержкой --- */
                     composable("pick_tasks") {
                         val tasks by pickVm.tasks.collectAsState()
 
                         PickTasksScreen(
                             tasks = tasks,
                             onOpenTask = { taskId ->
-                                println("Debug: Opening task $taskId") // Добавляем отладку
+                                println("Debug: Opening task $taskId")
                                 pickVm.openTask(taskId)
                                 navController.navigate("pick_details")
                             },
@@ -161,27 +168,48 @@ class MainActivity : ComponentActivity() {
                             onCancelTask = { taskId ->
                                 pickVm.cancelTask(taskId)
                                 println("Debug: Cancelled task $taskId")
-                            }
+                            },
+                            // Добавляем поддержку BLE сканера
+                            newlandViewModel = newlandVm
                         )
                     }
 
-                    /* --- Детали конкретного задания --- */
+                    /* --- Детали конкретного задания с BLE поддержкой --- */
                     composable("pick_details") {
                         val task by pickVm.currentTask.collectAsState()
                         val dialogFor by pickVm.showQtyDialogFor.collectAsState()
                         val lastCode by pickVm.lastScannedCode.collectAsState()
 
-                        println("Debug: pick_details - task = $task, details = ${task?.details}") // Отладка
+                        println("Debug: pick_details - task = $task, details = ${task?.details}")
 
-                        PickDetailsScreen(
+                        // Используем улучшенную версию с BLE поддержкой
+                        PickDetailsEnhanced(
                             task = task,
                             showQtyDialogFor = dialogFor,
                             onShowQtyDialog = pickVm::requestShowQtyDialog,
                             onDismissQtyDialog = pickVm::dismissQtyDialog,
                             onSubmitQty = pickVm::submitPickedQuantity,
-                            onScanAnyCode = pickVm::handleScannedBarcodeForItem,
-                            onSubmitPickedQty = pickVm::submitPickedQuantity, // alias
+                            onScanAnyCode = { code ->
+                                // Поддерживаем как HID, так и BLE сканеры
+                                pickVm.handleScannedBarcodeForItem(code)
+                            },
                             scannedQr = lastCode,
+                            onBack = { navController.popBackStack() },
+                            onPrintLabel = { detail ->
+                                // TODO: Реализовать печать этикетки для детали
+                                println("Debug: Print label for detail ${detail.partNumber}")
+                            },
+                            onCompleteTask = {
+                                pickVm.markTaskAsCompleted(task?.id ?: "")
+                                navController.popBackStack()
+                            }
+                        )
+                    }
+
+                    /* --- Тестирование BLE сканера --- */
+                    composable("ble_test") {
+                        BleTestScreen(
+                            viewModel = newlandVm,
                             onBack = { navController.popBackStack() }
                         )
                     }
@@ -189,4 +217,21 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Очищаем BLE ресурсы при закрытии приложения
+        newlandVm.clearScanCallback()
+    }
+}
+
+// Дополнительный экран для тестирования BLE (опционально)
+@Composable
+fun BleTestScreen(
+    viewModel: NewlandScannerViewModel,
+    onBack: () -> Unit
+) {
+    // Простой экран для тестирования BLE функциональности
+    // Может быть полезен для отладки
+    ScannerTestDemo(onBack = onBack)
 }
