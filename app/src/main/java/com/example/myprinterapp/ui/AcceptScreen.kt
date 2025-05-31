@@ -1,9 +1,7 @@
 package com.example.myprinterapp.ui
 
-import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -11,9 +9,12 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.LabelImportant
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material3.*
-import androidx.compose.material3.TextFieldDefaults
+// import androidx.compose.material3.TextFieldDefaults // Удалено, т.к. используется OutlinedTextFieldDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,7 +29,6 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -36,13 +36,11 @@ import androidx.compose.ui.unit.sp
 import com.example.myprinterapp.printer.ConnectionState
 import com.example.myprinterapp.ui.theme.WarmYellow
 import com.example.myprinterapp.viewmodel.AcceptUiState
-import com.example.myprinterapp.viewmodel.AcceptanceRecord
 import kotlinx.coroutines.delay
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.remember
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myprinterapp.viewmodel.AcceptViewModel
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.layout.Box
@@ -51,12 +49,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalTextStyle
-import com.example.myprinterapp.BuildConfig
 import com.example.myprinterapp.ui.components.ScannerInputField
-import com.example.myprinterapp.ui.components.ScannerSetupInstructions
-import com.example.myprinterapp.ui.components.ScannerDebugDialog
 import com.example.myprinterapp.scanner.ScannerState
-import com.example.myprinterapp.ui.components.ScannerDebugPanel
 
 // Утилита для затемнения цвета (простой вариант)
 private fun Color.darker(factor: Float = 0.8f): Color {
@@ -83,7 +77,7 @@ fun parseFixedQrValue(scannedValue: String?): List<ParsedQrData> {
         ParsedQrData("Номер маршрутной карты", parts[0], Icons.Filled.ConfirmationNumber),
         ParsedQrData("Номер заказа", parts[1], Icons.Filled.ShoppingCart),
         ParsedQrData("Номер детали", parts[2], Icons.Filled.DataObject),
-        ParsedQrData("Название детали", parts[3], Icons.Filled.LabelImportant)
+        ParsedQrData("Название детали", parts[3], Icons.AutoMirrored.Filled.LabelImportant)
     )
 }
 
@@ -115,7 +109,6 @@ fun AcceptScreen(
     val lastOperations by viewModel.lastOperations.collectAsState()
 
     var showScannerSetup by remember { mutableStateOf(false) }
-    var showScannerDebug by remember { mutableStateOf(false) }
     var scannerInputValue by remember { mutableStateOf("") }
 
     val borderColor = MaterialTheme.colorScheme.outline.darker(0.8f)
@@ -138,7 +131,7 @@ fun AcceptScreen(
                 title = { Text("Приемка продукции", fontSize = 26.sp, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Filled.ArrowBack, "Назад", modifier = Modifier.size(36.dp))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", modifier = Modifier.size(36.dp))
                     }
                 },
                 actions = {
@@ -173,8 +166,7 @@ fun AcceptScreen(
                     ScannerStatusIndicator(
                         connectionState = scannerConnectionState,
                         onClick = {
-                            // Долгое нажатие - отладка, короткое - настройка
-                            showScannerDebug = true
+                            showScannerSetup = true
                         }
                     )
 
@@ -246,7 +238,7 @@ fun AcceptScreen(
                             Icon(
                                 if (scannerConnectionState == ScannerState.CONNECTED)
                                     Icons.Filled.BluetoothConnected
-                                else Icons.Filled.BluetoothSearching,
+                                else Icons.AutoMirrored.Filled.BluetoothSearching,
                                 "Сканер Bluetooth",
                                 modifier = Modifier.size(40.dp)
                             )
@@ -290,7 +282,7 @@ fun AcceptScreen(
                     textStyle = LocalTextStyle.current.copy(fontSize = 18.sp, fontWeight = FontWeight.Medium),
                     minLines = 1,
                     maxLines = 2,
-                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                    colors = OutlinedTextFieldDefaults.colors(
                         unfocusedBorderColor = borderColor,
                         focusedBorderColor = MaterialTheme.colorScheme.primary
                     )
@@ -461,77 +453,6 @@ fun AcceptScreen(
         }
     }
 
-    // Диалог настройки сканера
-    if (showScannerSetup) {
-        ScannerSetupInstructions(
-            onDismiss = { showScannerSetup = false }
-        )
-    }
-
-    // Диалог отладки сканера
-    if (showScannerDebug) {
-        ScannerDebugDialog(
-            scannerService = viewModel.scannerService,
-            onDismiss = { showScannerDebug = false }
-        )
-    }
-    if (BuildConfig.DEBUG) {
-        var showDebugPanel by remember { mutableStateOf(false) }
-
-        // Кнопка для показа/скрытия панели отладки
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(
-                onClick = { showDebugPanel = !showDebugPanel }
-            ) {
-                Icon(
-                    if (showDebugPanel) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    if (showDebugPanel) "Скрыть отладку" else "Показать отладку HID POS",
-                    fontSize = 14.sp
-                )
-            }
-        }
-
-        // Панель отладки
-        AnimatedVisibility(
-            visible = showDebugPanel,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
-        ) {
-            ScannerDebugPanel(
-                modifier = Modifier.padding(vertical = 8.dp),
-                onTestDecoder = {
-                    // Запускаем тест декодера
-                    viewModel.testHidPosDecoder()
-                }
-            )
-        }
-    }
-
-// Обновите поле ввода сканера для поддержки HID POS:
-    if (scannerConnectionState == ScannerState.CONNECTED) {
-        ScannerInputField(
-            value = scannerInputValue,
-            onValueChange = { scannerInputValue = it },
-            onScanComplete = { code ->
-                // Обрабатываем через HID POS декодер
-                viewModel.onHidPosDataReceived(code)
-                scannerInputValue = ""
-            },
-            label = "Сканируйте QR-код",
-            placeholder = "Наведите сканер HR32-BT и нажмите кнопку",
-            isConnected = true,
-            autoFocus = true,
-            clearAfterScan = true
-        )
-    }
 
     // Диалог редактирования
     editingRecord?.let { record ->
@@ -699,10 +620,11 @@ fun LargeInputTextField(
         singleLine = true,
         shape = MaterialTheme.shapes.medium,
         enabled = enabled,
-        colors = TextFieldDefaults.outlinedTextFieldColors(
+        colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = borderColor,
         ),
 
         )
 }
+

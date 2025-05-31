@@ -11,9 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -22,7 +20,6 @@ import android.util.Log
 
 /**
  * Поле ввода, оптимизированное для работы с Bluetooth-сканером
- * с поддержкой кириллицы
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,55 +35,25 @@ fun ScannerInputField(
     clearAfterScan: Boolean = true
 ) {
     val focusRequester = remember { FocusRequester() }
-    val focusManager = LocalFocusManager.current
-    var isFocused by remember { mutableStateOf(false) }
 
-    // Буфер для накопления символов
-    var buffer by remember { mutableStateOf("") }
-    var lastInputTime by remember { mutableStateOf(0L) }
-
-    // Автофокус при первом показе
     LaunchedEffect(autoFocus) {
         if (autoFocus) {
             focusRequester.requestFocus()
         }
     }
 
-    // Обработка ввода с учетом кириллицы и буферизации
+    // Упрощенная обработка ввода: если значение не пустое, ждем небольшую задержку.
+    // Если значение не изменилось за это время, считаем сканирование завершенным.
     LaunchedEffect(value) {
-        if (value.isNotEmpty() && value != buffer) {
-            val currentTime = System.currentTimeMillis()
-            val timeSinceLastInput = currentTime - lastInputTime
+        if (value.isNotEmpty()) {
+            val capturedValue = value
+            delay(150) // Задержка для определения конца сканирования (можно настроить)
 
-            // Если прошло менее 50мс с последнего ввода, это часть одного сканирования
-            if (timeSinceLastInput < 50) {
-                buffer = value
-                lastInputTime = currentTime
-
-                // Ждем еще немного для получения полных данных
-                delay(100)
-
-                // Проверяем, не изменился ли buffer за это время
-                if (buffer == value) {
-                    // Обрабатываем накопленные данные
-                    processScannedData(buffer, onScanComplete)
-                    if (clearAfterScan) {
-                        onValueChange("")
-                        buffer = ""
-                    }
-                }
-            } else {
-                // Новое сканирование
-                buffer = value
-                lastInputTime = currentTime
-
-                // Для коротких кодов может сработать сразу
-                if (value.endsWith('\n') || value.endsWith('\r')) {
-                    processScannedData(value, onScanComplete)
-                    if (clearAfterScan) {
-                        onValueChange("")
-                        buffer = ""
-                    }
+            if (value == capturedValue && value.isNotEmpty()) {
+                Log.d("ScannerInput", "Scan complete detected: '$value'")
+                onScanComplete(value.trim()) // Вызываем onScanComplete с очищенным значением
+                if (clearAfterScan) {
+                    onValueChange("") // Очищаем поле ввода
                 }
             }
         }
@@ -94,11 +61,7 @@ fun ScannerInputField(
 
     OutlinedTextField(
         value = value,
-        onValueChange = { newValue ->
-            Log.d("ScannerInput", "Raw input: $newValue")
-            Log.d("ScannerInput", "Bytes: ${newValue.toByteArray().contentToString()}")
-            onValueChange(newValue)
-        },
+        onValueChange = onValueChange, // Передаем изменения напрямую
         label = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -145,106 +108,30 @@ fun ScannerInputField(
         },
         trailingIcon = {
             if (value.isNotEmpty()) {
-                IconButton(onClick = {
-                    onValueChange("")
-                    buffer = ""
-                }) {
+                IconButton(onClick = { onValueChange("") }) { // Просто очищаем поле
                     Icon(Icons.Filled.Clear, contentDescription = "Очистить")
                 }
             }
         },
+        modifier = modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester),
         keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Text,
+            keyboardType = KeyboardType.Text, // Используйте KeyboardType.Text для общей совместимости
             imeAction = ImeAction.Done
         ),
         keyboardActions = KeyboardActions(
             onDone = {
+                // При нажатии Done на клавиатуре также считаем ввод завершенным
                 if (value.isNotEmpty()) {
-                    processScannedData(value, onScanComplete)
+                    onScanComplete(value.trim())
                     if (clearAfterScan) {
                         onValueChange("")
-                        buffer = ""
                     }
                 }
-                focusManager.clearFocus()
             }
         ),
-        singleLine = true,
-        modifier = modifier
-            .fillMaxWidth()
-            .focusRequester(focusRequester)
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = TextFieldDefaults.outlinedTextFieldColors(
-            focusedBorderColor = if (isConnected)
-                MaterialTheme.colorScheme.primary
-            else
-                MaterialTheme.colorScheme.error,
-            unfocusedBorderColor = if (isConnected)
-                MaterialTheme.colorScheme.outline
-            else
-                MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
-        )
+        singleLine = true
     )
 }
 
-/**
- * Обработка отсканированных данных с учетом кириллицы
- */
-private fun processScannedData(data: String, onScanComplete: (String) -> Unit) {
-    // Очищаем от управляющих символов
-    val cleanedData = data.trim('\n', '\r', ' ')
-
-    if (cleanedData.isNotEmpty()) {
-        Log.d("ScannerInput", "Processing scanned data: $cleanedData")
-
-        // Пытаемся декодировать кириллицу
-        val decodedData = decodeCyrillicIfNeeded(cleanedData)
-        Log.d("ScannerInput", "Decoded data: $decodedData")
-
-        onScanComplete(decodedData)
-    }
-}
-
-/**
- * Декодирование кириллицы, если необходимо
- */
-private fun decodeCyrillicIfNeeded(input: String): String {
-    // Проверяем, содержит ли строка кириллицу
-    if (input.any { it in '\u0400'..'\u04FF' }) {
-        // Уже содержит кириллицу, возвращаем как есть
-        return input
-    }
-
-    // Проверяем на признаки неправильной кодировки
-    if (input.contains("?") || input.any { it.code > 127 && it !in '\u0400'..'\u04FF' }) {
-        try {
-            // Попытка интерпретировать как Windows-1251
-            val bytes = input.toByteArray(Charsets.ISO_8859_1)
-            val decoded = String(bytes, charset("Windows-1251"))
-
-            // Проверяем, стало ли лучше
-            if (decoded.any { it in '\u0400'..'\u04FF' } && !decoded.contains("�")) {
-                Log.d("ScannerInput", "Successfully decoded from Windows-1251")
-                return decoded
-            }
-        } catch (e: Exception) {
-            Log.e("ScannerInput", "Failed to decode as Windows-1251", e)
-        }
-
-        try {
-            // Попытка интерпретировать как UTF-8
-            val bytes = input.toByteArray()
-            val decoded = String(bytes, Charsets.UTF_8)
-
-            if (decoded.any { it in '\u0400'..'\u04FF' } && !decoded.contains("�")) {
-                Log.d("ScannerInput", "Successfully decoded as UTF-8")
-                return decoded
-            }
-        } catch (e: Exception) {
-            Log.e("ScannerInput", "Failed to decode as UTF-8", e)
-        }
-    }
-
-    // Возвращаем оригинал, если декодирование не помогло
-    return input
-}

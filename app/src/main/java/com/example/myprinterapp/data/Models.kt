@@ -121,3 +121,37 @@ data class TaskTransferData(
     val transferredBy: String? = null,
     val deviceId: String? = null
 )
+enum class ScannerConnectionState {
+    DISCONNECTED,
+    SEARCHING,
+    CONNECTING,
+    CONNECTED
+}
+
+data class EnhancedScanData(
+    val data: String,
+    val rawData: ByteArray,
+    val symbology: Symbology,
+    val aimId: String?,
+    val codeId: String?,
+    val timestamp: Long,
+    val quality: Int,
+    val characterSet: CharacterSet
+)
+
+data class ScannerDetailedInfo(
+    val name: String,
+    val address: String,
+    val model: String,
+    val firmwareVersion: String,
+    val serialNumber: String,
+    val batteryLevel: Int,
+    val supportedSymbologies: List<Symbology>,
+    val currentConfig: ScannerConfig
+)
+
+enum class QRType {
+    CYRILLIC_HEAVY,    // Много кириллицы
+    MIXED_CONTENT,     // Смешанный контент
+    STANDARD_LATIN     // Стандартный латинский
+}

@@ -4,7 +4,7 @@ plugins {
     id 'kotlin-kapt'
     id 'com.google.dagger.hilt.android'
     id 'kotlin-parcelize'
-    id 'com.google.devtools.ksp' // Добавляем KSP плагин без указания версии
+    id 'com.google.devtools.ksp'
 }
 
 android {
@@ -45,6 +45,8 @@ android {
 
     packagingOptions {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // Добавляем для работы с Newland SDK
+        jniLibs.pickFirsts += ['**/*.so']
     }
 
     kotlin {
@@ -54,6 +56,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        viewBinding = true // Добавляем для совместимости с SDK
     }
 
     composeOptions {
@@ -84,7 +87,7 @@ dependencies {
     // Gson для работы с JSON
     implementation 'com.google.code.gson:gson:2.10.1'
 
-    // Разрешения для WiFi (если нужны дополнительные)
+    // Разрешения для WiFi и BLE
     implementation 'androidx.activity:activity-ktx:1.9.0'
 
     // Navigation
@@ -102,7 +105,7 @@ dependencies {
     // Room - используем версию из корневого build.gradle
     implementation "androidx.room:room-runtime:2.5.2"
     implementation "androidx.room:room-ktx:2.5.2"
-    ksp "androidx.room:room-compiler:2.5.2" // Используем KSP
+    ksp "androidx.room:room-compiler:2.5.2"
 
     // DataStore для настроек
     implementation "androidx.datastore:datastore-preferences:1.0.0"
@@ -120,6 +123,7 @@ dependencies {
 
     // ZXing для генерации QR-кодов
     implementation 'com.google.zxing:core:3.5.3'
+    implementation "com.journeyapps:zxing-android-embedded:4.3.0"
 
     // Kotlin
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
@@ -134,6 +138,13 @@ dependencies {
 
     // Локальная библиотека принтера
     implementation(name: 'printer-lib-3.2.0', ext: 'aar')
+
+    // Newland BLE SDK
+    implementation(name: 'nlsblesdk', ext: 'aar')
+
+    // ON Semi библиотеки (требуются для Newland SDK)
+    implementation files('libs/onsemi_blelibrary.jar')
+    implementation files('libs/onsemi_fotalibrary.jar')
 
     // Debug tools
     debugImplementation "androidx.compose.ui:ui-tooling"
@@ -153,4 +164,3 @@ kapt {
         option("-Xmaxerrs", 1000)
     }
 }
-

@@ -152,38 +152,27 @@ class BluetoothScannerService @Inject constructor(
 
             _availableScanners.value = scanners.toList()
 
-            // Используем BluetoothHidHelper для более надежной проверки
-            val connectedHidDevices = BluetoothHidHelper.getConnectedHidDevices(context)
-            Log.d(TAG, "Connected HID devices: ${connectedHidDevices.size}")
-
-            // Проверяем каждый сканер
-            scanners.forEach { scanner ->
-                val isConnected = BluetoothHidHelper.isHidDeviceConnected(scanner, context) ||
-                        connectedHidDevices.any { it.address == scanner.address }
+            // Упрощенная проверка: подключаемся к первому найденному сопряженному сканеру,
+            // который также числится как подключенный по GATT.
+            scanners.firstOrNull { scanner ->
+                val connectedGattDevices = try {
+                    bluetoothManager.getConnectedDevices(BluetoothProfile.GATT)
+                } catch (se: SecurityException) {
+                    Log.e(TAG, "No permission to get GATT devices", se)
+                    emptyList()
+                }
+                val isConnected = connectedGattDevices.any { it.address == scanner.address }
 
                 try {
-                    Log.d(TAG, "Scanner ${scanner.name ?: "Unknown"} connected: $isConnected")
+                    Log.d(TAG, "Scanner ${scanner.name ?: "Unknown"} (${scanner.address}) - Bonded: ${scanner.bondState == BluetoothDevice.BOND_BONDED}, Connected via GATT: $isConnected")
                 } catch (_: SecurityException) {
-                    Log.d(TAG, "Scanner ${scanner.address} connected: $isConnected")
+                    Log.d(TAG, "Scanner ${scanner.address} - Bonded: ${scanner.bondState == BluetoothDevice.BOND_BONDED}, Connected via GATT: $isConnected")
                 }
-
-                if (isConnected) {
-                    handleScannerConnected(scanner)
-                    return // Подключаемся к первому найденному
-                }
+                isConnected // Считаем подключенным, если он есть в списке GATT-подключенных
+            }?.let { connectedScannerDevice ->
+                handleScannerConnected(connectedScannerDevice)
             }
 
-            // Если не нашли среди сканеров, проверяем все HID устройства
-            connectedHidDevices.firstOrNull()?.let { device ->
-                try {
-                    Log.d(TAG, "Found connected HID device: ${device.name ?: "Unknown"}")
-                } catch (_: SecurityException) {
-                    Log.d(TAG, "Found connected HID device: ${device.address}")
-                }
-                if (isScannerDevice(device)) {
-                    handleScannerConnected(device)
-                }
-            }
         } catch (e: SecurityException) {
             Log.e(TAG, "Security exception checking paired devices", e)
         }
@@ -223,57 +212,30 @@ class BluetoothScannerService @Inject constructor(
      */
     private fun isDeviceConnected(device: BluetoothDevice): Boolean {
         return try {
-            // Метод 1: Проверка через рефлексию
-            val method = device.javaClass.getMethod("isConnected")
-            val result = method.invoke(device) as Boolean
-            if (result) return true
-
-            // Метод 2: Проверка через BluetoothManager
-            // Проверяем разные профили
-            try {
-                val connectedDevices = try {
-                    bluetoothManager.getConnectedDevices(BluetoothProfile.GATT)
-                } catch (se: SecurityException) {
-                    Log.e(TAG, "No permission to get GATT devices", se)
-                    emptyList()
-                }
-                if (connectedDevices.any { it.address == device.address }) return true
-            } catch (e: Exception) {
-                Log.d(TAG, "GATT profile not available", e)
+            // Основная проверка: через BluetoothManager и профиль GATT
+            val connectedDevices = try {
+                bluetoothManager.getConnectedDevices(BluetoothProfile.GATT)
+            } catch (se: SecurityException) {
+                Log.e(TAG, "No permission to get GATT devices for isDeviceConnected check", se)
+                emptyList()
             }
+            val isConnectedViaGatt = connectedDevices.any { it.address == device.address }
 
-            // Альтернативная проверка через A2DP профиль
-            try {
-                val connectedDevices = try {
-                    bluetoothManager.getConnectedDevices(BluetoothProfile.A2DP)
-                } catch (se: SecurityException) {
-                    Log.e(TAG, "No permission to get A2DP devices", se)
-                    emptyList()
-                }
-                if (connectedDevices.any { it.address == device.address }) return true
-            } catch (e: Exception) {
-                Log.d(TAG, "A2DP profile not available", e)
-            }
-
-            // Метод 3: Проверка через состояние сопряжения
-            val bondState = try {
-                device.bondState
+            // Дополнительная проверка: состояние сопряжения (если устройство сопряжено, это хороший знак)
+            val isBonded = try {
+                device.bondState == BluetoothDevice.BOND_BONDED
             } catch (e: SecurityException) {
-                BluetoothDevice.BOND_NONE
+                Log.w(TAG, "Security exception checking bond state for ${device.address}", e)
+                false
             }
 
-            return bondState == BluetoothDevice.BOND_BONDED && isScannerDevice(device)
+            Log.d(TAG, "Device ${device.address} - Connected via GATT: $isConnectedViaGatt, Bonded: $isBonded")
+            // Считаем устройство подключенным, если оно подключено через GATT
+            // или если оно сопряжено и является сканером (как запасной вариант, если GATT не дал точного ответа)
+            isConnectedViaGatt || (isBonded && isScannerDevice(device))
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking device connection", e)
-            // Если все методы не сработали, считаем устройство подключенным,
-            // если оно в списке сопряженных и является сканером
-            val bondState = try {
-                device.bondState
-            } catch (e: SecurityException) {
-                BluetoothDevice.BOND_NONE
-            }
-
-            return bondState == BluetoothDevice.BOND_BONDED && isScannerDevice(device)
+            Log.e(TAG, "Error checking device connection for ${device.address}", e)
+            false
         }
     }
 
@@ -361,13 +323,6 @@ class BluetoothScannerService @Inject constructor(
      */
     fun forceCheckConnection() {
         checkConnectedScanners()
-    }
-
-    /**
-     * Получение состояния конкретного устройства
-     */
-    fun getDeviceConnectionState(device: BluetoothDevice): Boolean {
-        return isDeviceConnected(device)
     }
 
     /**

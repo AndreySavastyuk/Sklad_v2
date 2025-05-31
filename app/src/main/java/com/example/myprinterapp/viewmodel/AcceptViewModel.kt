@@ -9,9 +9,7 @@ import com.example.myprinterapp.printer.PrinterService
 import com.example.myprinterapp.printer.ConnectionState
 import com.example.myprinterapp.scanner.BluetoothScannerService
 import com.example.myprinterapp.scanner.ScannerState
-import com.example.myprinterapp.data.db.PrintLogEntry
 import com.example.myprinterapp.data.repo.PrintLogRepository
-import com.example.myprinterapp.scanner.ScannerDecoderService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,8 +24,6 @@ import javax.inject.Inject
 class AcceptViewModel @Inject constructor(
     private val printerService: PrinterService,
     val scannerService: BluetoothScannerService,
-    private val printLogRepository: PrintLogRepository,
-    private val scannerDecoder: ScannerDecoderService // Добавьте эту строку
 ) : ViewModel() {
 
     // Состояние полей ввода
@@ -74,6 +70,11 @@ class AcceptViewModel @Inject constructor(
             delay(1000) // Даем время на инициализацию
             scannerService.forceCheckConnection()
         }
+
+        // Тестируем UTF-8 QR генерацию (только в debug режиме)
+        if (com.example.myprinterapp.BuildConfig.DEBUG) {
+            testQrGeneration()
+        }
     }
 
     /**
@@ -83,8 +84,7 @@ class AcceptViewModel @Inject constructor(
         viewModelScope.launch {
             scannerService.lastScannedCode.collect { code ->
                 code?.let {
-                    // Пробуем сначала HID POS декодирование
-                    onHidPosDataReceived(it)
+                    onBarcodeDetected(it)
                     scannerService.clearLastScannedCode()
                 }
             }
@@ -98,44 +98,104 @@ class AcceptViewModel @Inject constructor(
         _scannedValue.value = code
         _uiState.value = AcceptUiState.Idle
     }
-    fun onHidPosDataReceived(rawData: String) {
+
+    /**
+     * Тестирование генерации QR-кодов с кириллицей
+     */
+    fun testQrGeneration() {
         viewModelScope.launch {
-            try {
-                // Сначала пробуем декодировать как HID POS
-                val hidPosData = scannerDecoder.decodeHidPosData(rawData)
+            val testCases = listOf(
+                "тест=2024/001=ДЕТАЛЬ-123=Тестовая деталь",
+                "приемка=2024/002=КОМПОНЕНТ-456=Компонент системы управления",
+                "заказ=2024/003=ИЗДЕЛИЕ-789=Изделие №1 специального назначения",
+                "test=2024/004=ЧАСТЬ-000=Mixed текст with кириллицей",
+                "маршрут=2024/005=УЗЕЛ-321=Сборочный узел двигателя"
+            )
 
-                if (hidPosData != null) {
-                    Log.d("AcceptViewModel", "HID POS decoded: ${hidPosData.symbology} - ${hidPosData.data}")
+            Log.d("QRTest", "=== Starting UTF-8 QR Generation Test ===")
 
-                    // Если это QR код, обрабатываем как обычно
-                    if (hidPosData.symbology.contains("QR", ignoreCase = true)) {
-                        onBarcodeDetected(hidPosData.data)
-                    } else {
-                        // Для других типов кодов можем показать предупреждение
-                        _uiState.value = AcceptUiState.Error(
-                            "Отсканирован ${hidPosData.symbology}. Пожалуйста, отсканируйте QR-код."
-                        )
+            testCases.forEach { qrData ->
+                try {
+                    Log.d("QRTest", "--- Testing QR generation ---")
+                    Log.d("QRTest", "Original data: $qrData")
+
+                    // Проверяем UTF-8 кодировку
+                    val utf8Bytes = qrData.toByteArray(Charsets.UTF_8)
+                    val restored = String(utf8Bytes, Charsets.UTF_8)
+
+                    Log.d("QRTest", "UTF-8 bytes (${utf8Bytes.size}): " +
+                            utf8Bytes.joinToString(" ") { "%02X".format(it) })
+                    Log.d("QRTest", "Restored: $restored")
+                    Log.d("QRTest", "UTF-8 valid: ${qrData == restored}")
+
+                    // Проверяем символы
+                    val cyrillicChars = mutableListOf<Char>()
+                    qrData.forEach { char ->
+                        if (char.code > 127) {
+                            if (char in '\u0400'..'\u04FF') {
+                                cyrillicChars.add(char)
+                            }
+                            Log.d("QRTest", "Non-ASCII char: '$char' (U+${char.code.toString(16).uppercase()})")
+                        }
                     }
-                } else {
-                    // Если не удалось декодировать как HID POS, пробуем обычное декодирование
-                    val decodedData = scannerDecoder.decode(rawData)
-                    onBarcodeDetected(decodedData)
+
+                    if (cyrillicChars.isNotEmpty()) {
+                        Log.d("QRTest", "Cyrillic characters found: ${cyrillicChars.joinToString()}")
+                    }
+
+                    // Создаем тестовые данные этикетки
+                    val labelData = LabelData(
+                        partNumber = "TEST-UTF8-${System.currentTimeMillis() % 1000}",
+                        description = "UTF-8 Test Label",
+                        orderNumber = "2024/TEST",
+                        location = "A1",
+                        quantity = 1,
+                        qrData = qrData,
+                        labelType = "Тест UTF-8",
+                        acceptanceDate = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                    )
+
+                    Log.d("QRTest", "Label data prepared successfully for: ${labelData.partNumber}")
+
+                } catch (e: Exception) {
+                    Log.e("QRTest", "Error testing QR: $qrData", e)
                 }
-            } catch (e: Exception) {
-                Log.e("AcceptViewModel", "Error processing HID POS data", e)
-                _uiState.value = AcceptUiState.Error("Ошибка обработки данных со сканера")
             }
+
+            Log.d("QRTest", "=== UTF-8 QR Generation Test Completed ===")
         }
     }
 
     /**
-     * Тестирование HID POS декодера
+     * Проверка корректности QR-данных перед печатью
      */
-    fun testHidPosDecoder() {
-        viewModelScope.launch {
-            scannerDecoder.testHidPosDecoder()
+    private fun validateQrDataBeforePrint(qrData: String): Boolean {
+        return try {
+            // Проверяем, что данные можно корректно закодировать в UTF-8
+            val utf8Bytes = qrData.toByteArray(Charsets.UTF_8)
+            val restored = String(utf8Bytes, Charsets.UTF_8)
+
+            val isValid = qrData == restored && qrData.isNotBlank()
+
+            if (!isValid) {
+                Log.w("QRValidation", "Invalid QR data detected: '$qrData'")
+            } else {
+                Log.d("QRValidation", "QR data validation passed: '$qrData'")
+
+                // Дополнительно логируем информацию о кириллице
+                val hasCyrillic = qrData.any { it in '\u0400'..'\u04FF' }
+                if (hasCyrillic) {
+                    Log.d("QRValidation", "Cyrillic characters detected in QR data")
+                }
+            }
+
+            isValid
+        } catch (e: Exception) {
+            Log.e("QRValidation", "QR validation failed", e)
+            false
         }
     }
+
     /**
      * Изменение количества
      */
@@ -154,7 +214,7 @@ class AcceptViewModel @Inject constructor(
     }
 
     /**
-     * Печать этикетки с использованием нового формата
+     * Печать этикетки с улучшенной UTF-8 валидацией
      */
     fun onPrintLabel() {
         val scannedData = _scannedValue.value
@@ -164,6 +224,12 @@ class AcceptViewModel @Inject constructor(
         // Валидация
         if (scannedData == null) {
             _uiState.value = AcceptUiState.Error("Сначала отсканируйте QR-код")
+            return
+        }
+
+        // Проверяем UTF-8 валидность QR-данных
+        if (!validateQrDataBeforePrint(scannedData)) {
+            _uiState.value = AcceptUiState.Error("QR-код содержит некорректные символы")
             return
         }
 
@@ -194,6 +260,15 @@ class AcceptViewModel @Inject constructor(
                     return@launch
                 }
 
+                // Log для отладки UTF-8
+                Log.d("AcceptViewModel", "=== QR Parts UTF-8 Analysis ===")
+                parts.forEachIndexed { index, part ->
+                    val utf8Bytes = part.toByteArray(Charsets.UTF_8)
+                    Log.d("AcceptViewModel", "Part $index: '$part'")
+                    Log.d("AcceptViewModel", "  UTF-8 bytes: ${utf8Bytes.contentToString()}")
+                    Log.d("AcceptViewModel", "  Has cyrillic: ${part.any { it in '\u0400'..'\u04FF' }}")
+                }
+
                 // Добавляем дату приемки
                 val acceptanceDate = LocalDateTime.now()
                 val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
@@ -208,6 +283,12 @@ class AcceptViewModel @Inject constructor(
                     labelType = "Приемка",
                     acceptanceDate = acceptanceDate.format(dateFormatter)
                 )
+
+                Log.d("AcceptViewModel", "=== Label Data for Printing ===")
+                Log.d("AcceptViewModel", "QR Data: ${labelData.qrData}")
+                Log.d("AcceptViewModel", "Part Number: ${labelData.partNumber}")
+                Log.d("AcceptViewModel", "Description: ${labelData.description}")
+                Log.d("AcceptViewModel", "Order Number: ${labelData.orderNumber}")
 
                 // Используем основной сервис с форматом для приемки
                 printerService.printLabel(labelData, LabelType.ACCEPTANCE_57x40)
@@ -286,6 +367,10 @@ class AcceptViewModel @Inject constructor(
                 acceptanceDate = record.acceptedAt.format(dateFormatter)
             )
 
+            Log.d("AcceptViewModel", "Reprinting label with updated data:")
+            Log.d("AcceptViewModel", "QR: ${labelData.qrData}")
+            Log.d("AcceptViewModel", "Quantity: $newQuantity, Cell: $newCellCode")
+
             printerService.printLabel(labelData, LabelType.ACCEPTANCE_57x40)
                 .onSuccess {
                     _uiState.value = AcceptUiState.Success("Исправленная этикетка напечатана")
@@ -349,6 +434,33 @@ class AcceptViewModel @Inject constructor(
      */
     fun getScannerSetupInstructions(): String {
         return scannerService.getSetupInstructions()
+    }
+
+    /**
+     * Экспорт результатов тестирования UTF-8
+     */
+    fun exportQrTestResults(): String {
+        val sb = StringBuilder()
+        sb.appendLine("=== UTF-8 QR Generation Test Results ===")
+        sb.appendLine("Timestamp: ${LocalDateTime.now()}")
+        sb.appendLine()
+
+        val testCases = listOf(
+            "тест=2024/001=ДЕТАЛЬ-123=Тестовая деталь",
+            "приемка=2024/002=КОМПОНЕНТ-456=Компонент системы управления",
+            "test=2024/004=ЧАСТЬ-000=Mixed текст with кириллицей"
+        )
+
+        testCases.forEach { testCase ->
+            sb.appendLine("Test Case: $testCase")
+            val utf8Bytes = testCase.toByteArray(Charsets.UTF_8)
+            sb.appendLine("UTF-8 Bytes: ${utf8Bytes.contentToString()}")
+            sb.appendLine("Byte Count: ${utf8Bytes.size}")
+            sb.appendLine("Has Cyrillic: ${testCase.any { it in '\u0400'..'\u04FF' }}")
+            sb.appendLine()
+        }
+
+        return sb.toString()
     }
 
     override fun onCleared() {

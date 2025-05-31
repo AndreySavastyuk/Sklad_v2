@@ -26,10 +26,6 @@ interface LabelFormat {
 
 /**
  * Формат этикетки 57x40 мм для приемки
- * Основан на исходной разметке из .prn файла с точными координатами
- */
-/**
- * Формат этикетки 57x40 мм для приемки
  */
 class AcceptanceLabelFormat57x40 : LabelFormat {
     override val widthMm = 57.0
@@ -51,38 +47,41 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
         }
         canvas.drawRect(1f, 1f, widthPx - 1f, heightPx - 1f, borderPaint)
 
-        // QR-код
+        // QR-код с улучшенной UTF-8 поддержкой
         val qrX = 16f
         val qrY = 95f
         val qrSize = 200
-        val qrBitmap = generateQRCode(data.qrData, qrSize)
+
+        // Валидируем QR-данные перед генерацией
+        val validatedQrData = validateQrData(data.qrData)
+        val qrBitmap = generateQRCode(validatedQrData, qrSize)
         canvas.drawBitmap(qrBitmap, qrX, qrY, null)
 
         // Номер детали
         val partNumberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             typeface = Typeface.create("Arial", Typeface.BOLD)
-            textSize = 45f // Увеличен размер с 38f до 42f
-            textAlign = Paint.Align.CENTER // Центрирование текста
+            textSize = 45f
+            textAlign = Paint.Align.CENTER
         }
 
-// Устанавливаем X позицию в центр этикетки
+        // Устанавливаем X позицию в центр этикетки
         val centerX = widthPx / 2f
 
-// Адаптивное масштабирование текста
+        // Адаптивное масштабирование текста
         var fontSize = 42f
         partNumberPaint.textSize = fontSize
         var textWidth = partNumberPaint.measureText(data.partNumber)
-        val maxWidth = widthPx - 16f // Учитываем небольшие отступы по бокам
+        val maxWidth = widthPx - 16f
 
-// Если текст не помещается, уменьшаем размер шрифта
+        // Если текст не помещается, уменьшаем размер шрифта
         while (textWidth > maxWidth && fontSize > 20f) {
             fontSize -= 2f
             partNumberPaint.textSize = fontSize
             textWidth = partNumberPaint.measureText(data.partNumber)
         }
 
-// Рисуем текст по центру этикетки
+        // Рисуем текст по центру этикетки
         canvas.drawText(data.partNumber, centerX, 47f, partNumberPaint)
 
         // Рамка ячейки
@@ -145,20 +144,61 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
 
         return bitmap
     }
+
+    /**
+     * Валидация QR-данных для обеспечения корректной UTF-8 кодировки
+     */
+    private fun validateQrData(data: String): String {
+        return try {
+            // Явно конвертируем в UTF-8 и обратно для проверки
+            val utf8Bytes = data.toByteArray(Charsets.UTF_8)
+            val restored = String(utf8Bytes, Charsets.UTF_8)
+
+            Log.d("QRValidation", "Original: $data")
+            Log.d("QRValidation", "UTF-8 bytes: ${utf8Bytes.contentToString()}")
+            Log.d("QRValidation", "Restored: $restored")
+            Log.d("QRValidation", "UTF-8 valid: ${data == restored}")
+
+            // Убираем потенциально проблемные управляющие символы
+            val cleaned = restored.replace("\r", "").replace("\n", "")
+
+            cleaned
+        } catch (e: Exception) {
+            Log.e("QRValidation", "QR data validation failed", e)
+            // Убираем невалидные символы как fallback
+            data.filter { char ->
+                char.code <= 0xFFFF && // Базовая многоязычная плоскость Unicode
+                        (!char.isISOControl() || char == '\t')
+            }
+        }
     }
 
     /**
-     * Генерация QR-кода точно как в оригинальной разметке
+     * Улучшенная генерация QR-кода с полной поддержкой UTF-8
      */
     private fun generateQRCode(data: String, size: Int): Bitmap {
         return try {
-            val writer = QRCodeWriter()
-            val hints = HashMap<EncodeHintType, Any>()
-            hints[EncodeHintType.CHARACTER_SET] = "UTF-8"
-            hints[EncodeHintType.ERROR_CORRECTION] = ErrorCorrectionLevel.M
-            hints[EncodeHintType.MARGIN] = 1
+            // Явно обеспечиваем UTF-8 кодировку
+            val utf8Data = String(data.toByteArray(Charsets.UTF_8), Charsets.UTF_8)
 
-            val bitMatrix = writer.encode(data, BarcodeFormat.QR_CODE, size, size, hints)
+            val writer = QRCodeWriter()
+            val hints = HashMap<EncodeHintType, Any>().apply {
+                put(EncodeHintType.CHARACTER_SET, "UTF-8")
+                put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M)
+                put(EncodeHintType.MARGIN, 1)
+            }
+
+            Log.d("QRGeneration", "Generating QR with UTF-8 data: $utf8Data")
+            Log.d("QRGeneration", "Data length: ${utf8Data.length} chars")
+            Log.d("QRGeneration", "UTF-8 bytes: ${utf8Data.toByteArray(Charsets.UTF_8).contentToString()}")
+
+            // Проверяем наличие кириллицы
+            val hasCyrillic = utf8Data.any { it in '\u0400'..'\u04FF' }
+            if (hasCyrillic) {
+                Log.d("QRGeneration", "Cyrillic characters detected in QR data")
+            }
+
+            val bitMatrix = writer.encode(utf8Data, BarcodeFormat.QR_CODE, size, size, hints)
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
 
             for (x in 0 until size) {
@@ -166,8 +206,12 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
                     bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
                 }
             }
+
+            Log.d("QRGeneration", "QR code generated successfully: ${size}x${size}")
             bitmap
+
         } catch (e: Exception) {
+            Log.e("QRGeneration", "Failed to generate QR code with data: $data", e)
             // Создаем пустой белый квадрат в случае ошибки
             Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).apply {
                 eraseColor(Color.WHITE)
@@ -207,7 +251,7 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
 
         return lines
     }
-
+}
 
 /**
  * Формат этикетки для комплектации
@@ -273,11 +317,14 @@ class PickingLabelFormat57x40 : LabelFormat {
         }
         canvas.drawText(data.description, margin, yPos, namePaint)
 
-        // QR-код справа внизу
+        // QR-код справа внизу с UTF-8 поддержкой
         val qrSize = 100
         val qrX = widthPx - qrSize - margin.toInt()
         val qrY = heightPx - qrSize - margin.toInt()
-        val qrBitmap = generateQRCode(data.qrData, qrSize)
+
+        // Валидируем QR-данные
+        val validatedQrData = validateQrData(data.qrData)
+        val qrBitmap = generateQRCode(validatedQrData, qrSize)
         canvas.drawBitmap(qrBitmap, qrX.toFloat(), qrY.toFloat(), null)
 
         // Количество и ячейка внизу слева
@@ -302,15 +349,41 @@ class PickingLabelFormat57x40 : LabelFormat {
         return bitmap
     }
 
+    /**
+     * Валидация QR-данных для комплектации
+     */
+    private fun validateQrData(data: String): String {
+        return try {
+            val utf8Bytes = data.toByteArray(Charsets.UTF_8)
+            val restored = String(utf8Bytes, Charsets.UTF_8)
+
+            Log.d("PickingQR", "Validating QR data: $data")
+            Log.d("PickingQR", "UTF-8 valid: ${data == restored}")
+
+            restored.replace("\r", "").replace("\n", "")
+        } catch (e: Exception) {
+            Log.e("PickingQR", "QR validation failed", e)
+            data.filter { !it.isISOControl() }
+        }
+    }
+
+    /**
+     * Генерация QR-кода для комплектации с UTF-8
+     */
     private fun generateQRCode(data: String, size: Int): Bitmap {
         return try {
-            val writer = QRCodeWriter()
-            val hints = HashMap<EncodeHintType, Any>()
-            hints[EncodeHintType.CHARACTER_SET] = "UTF-8"
-            hints[EncodeHintType.ERROR_CORRECTION] = ErrorCorrectionLevel.M
-            hints[EncodeHintType.MARGIN] = 0
+            val utf8Data = String(data.toByteArray(Charsets.UTF_8), Charsets.UTF_8)
 
-            val bitMatrix = writer.encode(data, BarcodeFormat.QR_CODE, size, size, hints)
+            val writer = QRCodeWriter()
+            val hints = HashMap<EncodeHintType, Any>().apply {
+                put(EncodeHintType.CHARACTER_SET, "UTF-8")
+                put(EncodeHintType.ERROR_CORRECTION, ErrorCorrectionLevel.M)
+                put(EncodeHintType.MARGIN, 0)
+            }
+
+            Log.d("PickingQR", "Generating picking QR: $utf8Data")
+
+            val bitMatrix = writer.encode(utf8Data, BarcodeFormat.QR_CODE, size, size, hints)
             val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
 
             for (x in 0 until size) {
@@ -318,8 +391,10 @@ class PickingLabelFormat57x40 : LabelFormat {
                     bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
                 }
             }
+
             bitmap
         } catch (e: Exception) {
+            Log.e("PickingQR", "Failed to generate picking QR", e)
             Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).apply {
                 eraseColor(Color.WHITE)
             }
@@ -369,6 +444,12 @@ class ExtendedPrinterService(
         }
 
         return try {
+            // Логируем данные перед печатью
+            Log.d(TAG, "Printing label with UTF-8 data:")
+            Log.d(TAG, "QR Data: ${labelData.qrData}")
+            Log.d(TAG, "Part Number: ${labelData.partNumber}")
+            Log.d(TAG, "Description: ${labelData.description}")
+
             // Получаем формат этикетки
             val format = labelType.getFormat()
 
@@ -376,7 +457,6 @@ class ExtendedPrinterService(
             val labelBitmap = format.createBitmap(labelData)
 
             // Для печати используем оригинальный метод сервиса
-            // но с модифицированными данными этикетки
             originalService.printLabel(labelData)
         } catch (e: Exception) {
             Log.e(TAG, "Print error", e)
