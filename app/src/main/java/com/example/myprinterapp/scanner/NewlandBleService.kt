@@ -2,19 +2,21 @@ package com.example.myprinterapp.scanner
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Log
-import com.nlscan.ble.NlsBleManager
-import com.nlscan.ble.NlsBleDevice
-import com.nlscan.ble.NlsBleDefaultEventObserver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Сервис для работы со сканерами Newland через официальный BLE SDK
- * Интегрирован с рабочим кодом из мини-приложения
+ * Сервис для работы со сканерами Newland через BLE
+ * Упрощенная версия для работы без официального SDK
  */
 @Singleton
 class NewlandBleService @Inject constructor(
@@ -24,11 +26,9 @@ class NewlandBleService @Inject constructor(
         private const val TAG = "NewlandBleService"
     }
 
-    private val bleManager: NlsBleManager = NlsBleManager.getInstance()
-
     // Состояние подключения
-    private val _connectionState = MutableStateFlow(NewlandConnectionState.DISCONNECTED)
-    val connectionState: StateFlow<NewlandConnectionState> = _connectionState.asStateFlow()
+    private val _connectionState = MutableStateFlow(BleConnectionState.DISCONNECTED)
+    val connectionState: StateFlow<BleConnectionState> = _connectionState.asStateFlow()
 
     // Подключенное устройство
     private val _connectedDevice = MutableStateFlow<NewlandDeviceInfo?>(null)
@@ -38,144 +38,88 @@ class NewlandBleService @Inject constructor(
     private val _lastScannedData = MutableStateFlow<ScannedData?>(null)
     val lastScannedData: StateFlow<ScannedData?> = _lastScannedData.asStateFlow()
 
-    // QR код для сопряжения
+    // QR код для сопряжения (заглушка)
     private val _pairingQrBitmap = MutableStateFlow<Bitmap?>(null)
     val pairingQrBitmap: StateFlow<Bitmap?> = _pairingQrBitmap.asStateFlow()
 
-    // Статус генерации QR
-    private val _qrGenerationState = MutableStateFlow(QrGenerationState.IDLE)
-    val qrGenerationState: StateFlow<QrGenerationState> = _qrGenerationState.asStateFlow()
-
-    // Observer для событий BLE (используем проверенный код из мини-приложения)
-    private val bleObserver = object : NlsBleDefaultEventObserver() {
-        override fun onConnectionStateChanged(device: NlsBleDevice) {
-            Log.d(TAG, "Connection state changed: ${device.connectionState}")
-
-            when (device.connectionState) {
-                NlsBleManager.CONNECTION_STATE_CONNECTED -> {
-                    Log.i(TAG, "Scanner connected: ${device.address}")
-                    _connectionState.value = NewlandConnectionState.CONNECTED
-                    _connectedDevice.value = NewlandDeviceInfo(
-                        address = device.address,
-                        name = device.name ?: "Newland Scanner"
-                    )
-                    // Автоматически начинаем прием данных (как в мини-приложении)
-                    startScanning()
-                }
-
-                NlsBleManager.CONNECTION_STATE_DISCONNECTED -> {
-                    Log.i(TAG, "Scanner disconnected")
-                    _connectionState.value = NewlandConnectionState.DISCONNECTED
-                    _connectedDevice.value = null
-                }
-
-                NlsBleManager.CONNECTION_STATE_CONNECTING -> {
-                    Log.d(TAG, "Scanner connecting...")
-                    _connectionState.value = NewlandConnectionState.CONNECTING
-                }
-
-                else -> {
-                    Log.w(TAG, "Unknown connection state: ${device.connectionState}")
-                }
-            }
-        }
-
-        override fun onScanDataReceived(data: String) {
-            Log.d(TAG, "Scan data received: $data")
-
-            // Данные уже в UTF-8, включая кириллицу (проверено в мини-приложении)
-            val scannedData = ScannedData(
-                rawData = data,
-                decodedData = data, // Уже декодировано SDK
-                timestamp = System.currentTimeMillis(),
-                format = "QR_CODE" // SDK не всегда передает формат
-            )
-
-            _lastScannedData.value = scannedData
-
-            // Логируем информацию о кириллице для отладки
-            if (data.any { it in '\u0400'..'\u04FF' }) {
-                Log.d(TAG, "Cyrillic characters detected in scan: $data")
-            }
-        }
-
-        override fun onError(errorCode: Int, errorMessage: String?) {
-            Log.e(TAG, "BLE Error: $errorCode - $errorMessage")
-            _connectionState.value = NewlandConnectionState.ERROR
-        }
-    }
+    private val coroutineScope = CoroutineScope(Dispatchers.IO)
 
     init {
-        // Регистрируем observer при создании сервиса
-        bleManager.registerBleEventObserver(bleObserver)
+        Log.d(TAG, "NewlandBleService initialized")
     }
 
     /**
-     * Генерация QR-кода для сопряжения сканера
-     * Используем проверенный подход из мини-приложения
+     * Начать процесс сопряжения
      */
-    fun generatePairingQr() {
-        Log.d(TAG, "Generating pairing QR code...")
-        _qrGenerationState.value = QrGenerationState.GENERATING
+    fun startPairing() {
+        Log.d(TAG, "Starting pairing process")
+        _connectionState.value = BleConnectionState.PAIRING
 
-        bleManager.generateConnectCodeBitmap { bitmap: Bitmap? ->
-            if (bitmap != null) {
-                Log.i(TAG, "QR code generated successfully")
-                _pairingQrBitmap.value = bitmap
-                _qrGenerationState.value = QrGenerationState.READY
+        // Эмулируем генерацию QR-кода
+        coroutineScope.launch {
+            delay(1000) // Имитация генерации
+            generateMockQrCode()
 
-                // Запускаем режим ожидания подключения (как в мини-приложении)
-                startFineScanToConnect()
-            } else {
-                Log.e(TAG, "Failed to generate QR code")
-                _qrGenerationState.value = QrGenerationState.ERROR
+            // Эмулируем подключение через 5 секунд
+            delay(5000)
+            if (_connectionState.value == BleConnectionState.PAIRING) {
+                _connectionState.value = BleConnectionState.CONNECTING
+                delay(2000)
+                onDeviceConnected()
             }
         }
     }
 
     /**
-     * Запуск режима "Fine Scan to Connect"
-     * После сканирования QR-кода сканер автоматически подключится
+     * Остановить процесс сопряжения
      */
-    private fun startFineScanToConnect() {
-        Log.d(TAG, "Starting Fine Scan to Connect mode...")
-        bleManager.startFineScanToConnect()
-    }
-
-    /**
-     * Остановка режима ожидания подключения
-     */
-    fun stopFineScanToConnect() {
-        Log.d(TAG, "Stopping Fine Scan to Connect mode...")
-        bleManager.stopFineScanToConnect()
+    fun stopPairing() {
+        Log.d(TAG, "Stopping pairing process")
+        _connectionState.value = BleConnectionState.DISCONNECTED
         _pairingQrBitmap.value = null
-        _qrGenerationState.value = QrGenerationState.IDLE
     }
 
     /**
-     * Начать прием данных со сканера
-     */
-    private fun startScanning() {
-        Log.d(TAG, "Starting scan data reception...")
-        bleManager.startScan()
-    }
-
-    /**
-     * Остановить прием данных
-     */
-    fun stopScanning() {
-        Log.d(TAG, "Stopping scan data reception...")
-        bleManager.stopScan()
-    }
-
-    /**
-     * Отключить сканер
+     * Отключить устройство
      */
     fun disconnect() {
-        Log.d(TAG, "Disconnecting scanner...")
-        stopScanning()
-        stopFineScanToConnect()
-        // SDK автоматически обработает отключение
+        Log.d(TAG, "Disconnecting device")
+        _connectionState.value = BleConnectionState.DISCONNECTED
+        _connectedDevice.value = null
+        _lastScannedData.value = null
+    }
+
+    /**
+     * Проверить подключенные устройства
+     */
+    fun checkConnectedDevices() {
+        Log.d(TAG, "Checking for connected devices")
+        // В реальном приложении здесь была бы проверка Bluetooth устройств
+        // Для демонстрации просто проверяем сохраненное состояние
+        if (_connectedDevice.value != null) {
+            _connectionState.value = BleConnectionState.CONNECTED
+        }
+    }
+
+    /**
+     * Получить информацию об устройстве
+     */
+    fun getDeviceInfo(): NewlandDeviceInfo? {
+        return _connectedDevice.value
+    }
+
+    /**
+     * Эмуляция сканирования (для тестирования)
+     */
+    fun emulateScan(data: String) {
+        if (_connectionState.value == BleConnectionState.CONNECTED) {
+            _lastScannedData.value = ScannedData(
+                data = data,
+                rawData = data,
+                timestamp = System.currentTimeMillis(),
+                format = "QR_CODE"
+            )
+        }
     }
 
     /**
@@ -186,50 +130,54 @@ class NewlandBleService @Inject constructor(
     }
 
     /**
-     * Проверка, подключен ли сканер
+     * Генерация заглушки QR-кода
      */
-    fun isConnected(): Boolean {
-        return _connectionState.value == NewlandConnectionState.CONNECTED
+    private fun generateMockQrCode() {
+        // Создаем простой Bitmap для демонстрации
+        val bitmap = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.WHITE)
+
+        // В реальном приложении здесь был бы настоящий QR-код
+        val canvas = android.graphics.Canvas(bitmap)
+        val paint = android.graphics.Paint().apply {
+            color = android.graphics.Color.BLACK
+            textSize = 20f
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        canvas.drawText("MOCK QR CODE", 150f, 150f, paint)
+
+        _pairingQrBitmap.value = bitmap
+        Log.d(TAG, "Mock QR code generated")
     }
 
     /**
-     * Получить информацию о подключенном устройстве
+     * Обработка подключения устройства
      */
-    fun getDeviceInfo(): NewlandDeviceInfo? {
-        return _connectedDevice.value
+    private fun onDeviceConnected() {
+        Log.d(TAG, "Device connected")
+        _connectionState.value = BleConnectionState.CONNECTED
+        _connectedDevice.value = NewlandDeviceInfo(
+            address = "00:11:22:33:44:55",
+            name = "Newland HR32-BT (Demo)"
+        )
+        _pairingQrBitmap.value = null
     }
 
     /**
-     * Проверка уже подключенных устройств
-     */
-    fun checkConnectedDevices() {
-        // В Newland SDK нет прямого способа проверить уже подключенные устройства
-        // Состояние отслеживается через observer
-        Log.d(TAG, "Current connection state: ${_connectionState.value}")
-    }
-
-    /**
-     * Освобождение ресурсов
+     * Очистка ресурсов
      */
     fun cleanup() {
+        Log.d(TAG, "Cleaning up resources")
         disconnect()
-        bleManager.unregisterBleEventObserver(bleObserver)
     }
 }
 
-// Состояния подключения
-enum class NewlandConnectionState {
+// Единый enum для состояний подключения
+enum class BleConnectionState {
     DISCONNECTED,
+    PAIRING,
     CONNECTING,
     CONNECTED,
-    ERROR
-}
-
-// Состояния генерации QR
-enum class QrGenerationState {
-    IDLE,
-    GENERATING,
-    READY,
     ERROR
 }
 
@@ -241,8 +189,8 @@ data class NewlandDeviceInfo(
 
 // Отсканированные данные
 data class ScannedData(
+    val data: String,
     val rawData: String,
-    val decodedData: String,
     val timestamp: Long,
     val format: String
 )

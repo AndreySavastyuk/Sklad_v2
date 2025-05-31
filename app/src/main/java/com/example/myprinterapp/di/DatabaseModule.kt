@@ -7,10 +7,9 @@ import com.example.myprinterapp.data.db.PrintLogDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
-
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -18,18 +17,21 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideDatabase(
+    fun provideAppDatabase(
         @ApplicationContext context: Context
-    ): AppDatabase =
-        Room.databaseBuilder(
+    ): AppDatabase {
+        return Room.databaseBuilder(
             context,
             AppDatabase::class.java,
-            "printer.db"
+            "myprinterapp_database"
         )
-            // если хотите видеть *.json-схемы — укажите папку
-            .addMigrations()          // migrations позже
+            .fallbackToDestructiveMigration() // Для разработки, в продакшене используйте миграции
             .build()
+    }
 
     @Provides
-    fun providePrintLogDao(db: AppDatabase): PrintLogDao = db.printLogDao()
+    @Singleton
+    fun providePrintLogDao(database: AppDatabase): PrintLogDao {
+        return database.printLogDao()
+    }
 }

@@ -6,12 +6,18 @@ import java.time.OffsetDateTime
 
 @Entity(tableName = "print_log")
 data class PrintLogEntry(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val dateTime: OffsetDateTime,      // дата/время печати
-    val labelType: String,             // «Приемка» / «Комплектация» / …
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val timestamp: OffsetDateTime,
+    val operationType: String, // "ACCEPT", "PICK", "TEST"
     val partNumber: String,
-    val orderNumber: String?,
-    val quantity: Int?,
-    val cellCode: String?,
-    val qrData: String                 // исходная строка QR
+    val partName: String,
+    val quantity: Int,
+    val location: String,
+    val orderNumber: String? = null,
+    val qrData: String,
+    val printerStatus: String, // "SUCCESS", "FAILED"
+    val errorMessage: String? = null,
+    val userName: String? = null,
+    val deviceId: String? = null
 )

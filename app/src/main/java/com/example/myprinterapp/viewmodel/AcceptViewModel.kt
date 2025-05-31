@@ -10,6 +10,7 @@ import com.example.myprinterapp.printer.ConnectionState
 import com.example.myprinterapp.scanner.BluetoothScannerService
 import com.example.myprinterapp.scanner.ScannerState
 import com.example.myprinterapp.data.repo.PrintLogRepository
+import com.example.myprinterapp.data.db.PrintLogEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
@@ -24,6 +27,7 @@ import javax.inject.Inject
 class AcceptViewModel @Inject constructor(
     private val printerService: PrinterService,
     val scannerService: BluetoothScannerService,
+    private val printLogRepository: PrintLogRepository
 ) : ViewModel() {
 
     // Состояние полей ввода
@@ -142,20 +146,6 @@ class AcceptViewModel @Inject constructor(
                     if (cyrillicChars.isNotEmpty()) {
                         Log.d("QRTest", "Cyrillic characters found: ${cyrillicChars.joinToString()}")
                     }
-
-                    // Создаем тестовые данные этикетки
-                    val labelData = LabelData(
-                        partNumber = "TEST-UTF8-${System.currentTimeMillis() % 1000}",
-                        description = "UTF-8 Test Label",
-                        orderNumber = "2024/TEST",
-                        location = "A1",
-                        quantity = 1,
-                        qrData = qrData,
-                        labelType = "Тест UTF-8",
-                        acceptanceDate = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
-                    )
-
-                    Log.d("QRTest", "Label data prepared successfully for: ${labelData.partNumber}")
 
                 } catch (e: Exception) {
                     Log.e("QRTest", "Error testing QR: $qrData", e)
@@ -309,19 +299,54 @@ class AcceptViewModel @Inject constructor(
                         )
                         addToHistory(record)
 
+                        // Сохраняем в базу данных
+                        saveToDatabase(labelData, "SUCCESS")
+
                         // Очищаем поля после успешной печати
                         resetInputFields()
                     }
                     .onFailure { error ->
-                        _uiState.value = AcceptUiState.Error(
-                            "Ошибка печати: ${error.message ?: "Неизвестная ошибка"}"
-                        )
+                        val errorMessage = "Ошибка печати: ${error.message ?: "Неизвестная ошибка"}"
+                        _uiState.value = AcceptUiState.Error(errorMessage)
+
+                        // Сохраняем неудачную попытку в БД
+                        saveToDatabase(labelData, "FAILED", error.message)
                     }
             } catch (e: Exception) {
                 _uiState.value = AcceptUiState.Error(
                     "Ошибка: ${e.message ?: "Неизвестная ошибка"}"
                 )
             }
+        }
+    }
+
+    /**
+     * Сохранение записи в базу данных
+     */
+    private suspend fun saveToDatabase(
+        labelData: LabelData,
+        status: String,
+        errorMessage: String? = null
+    ) {
+        try {
+            val logEntry = PrintLogEntry(
+                timestamp = OffsetDateTime.now(),
+                operationType = "ACCEPT",
+                partNumber = labelData.partNumber,
+                partName = labelData.description,
+                quantity = labelData.quantity,
+                location = labelData.location,
+                orderNumber = labelData.orderNumber,
+                qrData = labelData.qrData,
+                printerStatus = status,
+                errorMessage = errorMessage,
+                userName = null, // TODO: Добавить поддержку пользователей
+                deviceId = android.os.Build.MODEL
+            )
+
+            printLogRepository.addLog(logEntry)
+        } catch (e: Exception) {
+            Log.e("AcceptViewModel", "Error saving to database", e)
         }
     }
 
@@ -375,6 +400,9 @@ class AcceptViewModel @Inject constructor(
                 .onSuccess {
                     _uiState.value = AcceptUiState.Success("Исправленная этикетка напечатана")
                     _showEditDialog.value = false
+
+                    // Сохраняем обновление в БД
+                    saveToDatabase(labelData, "SUCCESS")
                 }
                 .onFailure { error ->
                     _uiState.value = AcceptUiState.Error("Ошибка печати: ${error.message}")
@@ -419,13 +447,29 @@ class AcceptViewModel @Inject constructor(
     }
 
     /**
-     * Загрузка последних операций
+     * Загрузка последних операций из БД
      */
     private fun loadLastOperations() {
         viewModelScope.launch {
-            // TODO: Загрузить из базы данных
-            // Пока используем пустой список
-            _lastOperations.value = emptyList()
+            printLogRepository.getRecentLogs(10).collect { logs ->
+                _lastOperations.value = logs
+                    .filter { it.operationType == "ACCEPT" }
+                    .map { log ->
+                        // Конвертируем из БД в модель UI
+                        AcceptanceRecord(
+                            id = log.id.toString(),
+                            partNumber = log.partNumber,
+                            partName = log.partName,
+                            orderNumber = log.orderNumber ?: "",
+                            quantity = log.quantity,
+                            cellCode = log.location,
+                            qrData = log.qrData,
+                            acceptedAt = log.timestamp.toLocalDateTime(),
+                            routeCardNumber = log.qrData.split('=').firstOrNull() ?: "",
+                            editedAt = null
+                        )
+                    }
+            }
         }
     }
 
@@ -434,33 +478,6 @@ class AcceptViewModel @Inject constructor(
      */
     fun getScannerSetupInstructions(): String {
         return scannerService.getSetupInstructions()
-    }
-
-    /**
-     * Экспорт результатов тестирования UTF-8
-     */
-    fun exportQrTestResults(): String {
-        val sb = StringBuilder()
-        sb.appendLine("=== UTF-8 QR Generation Test Results ===")
-        sb.appendLine("Timestamp: ${LocalDateTime.now()}")
-        sb.appendLine()
-
-        val testCases = listOf(
-            "тест=2024/001=ДЕТАЛЬ-123=Тестовая деталь",
-            "приемка=2024/002=КОМПОНЕНТ-456=Компонент системы управления",
-            "test=2024/004=ЧАСТЬ-000=Mixed текст with кириллицей"
-        )
-
-        testCases.forEach { testCase ->
-            sb.appendLine("Test Case: $testCase")
-            val utf8Bytes = testCase.toByteArray(Charsets.UTF_8)
-            sb.appendLine("UTF-8 Bytes: ${utf8Bytes.contentToString()}")
-            sb.appendLine("Byte Count: ${utf8Bytes.size}")
-            sb.appendLine("Has Cyrillic: ${testCase.any { it in '\u0400'..'\u04FF' }}")
-            sb.appendLine()
-        }
-
-        return sb.toString()
     }
 
     override fun onCleared() {
