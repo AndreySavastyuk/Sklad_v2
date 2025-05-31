@@ -23,11 +23,11 @@ object ScannerModule {
 
     @Provides
     @Singleton
-    fun provideNewlandBleService(
-        @ApplicationContext context: Context
-    ): NewlandBleService = NewlandBleService(context)
+    fun provideScannerDecoderService(): ScannerDecoderService = ScannerDecoderService()
 
     @Provides
     @Singleton
-    fun provideScannerDecoderService(): ScannerDecoderService = ScannerDecoderService()
+    fun provideNewlandBleService(
+        @ApplicationContext context: Context
+    ): NewlandBleService = NewlandBleService(context)
 }
