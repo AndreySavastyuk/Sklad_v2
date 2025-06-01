@@ -6,10 +6,8 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import android.util.Log
+import com.example.myprinterapp.data.models.LabelData
 
-/**
- * Базовый интерфейс для форматов этикеток
- */
 interface LabelFormat {
     val widthMm: Double
     val heightMm: Double
@@ -104,7 +102,7 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
             textAlign = Paint.Align.CENTER
         }
         val cellTextY = cellBoxY + (cellBoxHeight + cellPaint.textSize) / 2 - 6f
-        canvas.drawText(data.location, cellBoxX + cellBoxWidth / 2, cellTextY, cellPaint)
+        canvas.drawText(data.cellCode, cellBoxX + cellBoxWidth / 2, cellTextY, cellPaint)
 
         // Наименование детали
         val namePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -112,7 +110,7 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
             textSize = 18f
             typeface = Typeface.create("Arial", Typeface.NORMAL)
         }
-        canvas.drawText(data.description, 243f, 82f, namePaint)
+        canvas.drawText(data.partName, 243f, 82f, namePaint)
 
         // Номер заказа
         val orderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -128,9 +126,7 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
             textSize = 12f
             typeface = Typeface.create("Arial", Typeface.NORMAL)
         }
-        data.quantity?.let { qty ->
-            canvas.drawText("Кол-во: $qty шт", 21f, 87f, quantityPaint)
-        }
+        canvas.drawText("Кол-во: ${data.quantity} шт", 21f, 87f, quantityPaint)
 
         // Дата
         val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -138,9 +134,7 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
             textSize = 10f
             typeface = Typeface.create("Arial", Typeface.NORMAL)
         }
-        data.acceptanceDate?.let { date ->
-            canvas.drawText("Дата: $date", 110f, 86f, datePaint)
-        }
+        canvas.drawText("Дата: ${data.date}", 110f, 86f, datePaint)
 
         return bitmap
     }
@@ -218,39 +212,6 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
             }
         }
     }
-
-    /**
-     * Функция переноса текста на строки
-     */
-    private fun wrapText(text: String, paint: Paint, maxWidth: Float): List<String> {
-        val words = text.split(" ")
-        val lines = mutableListOf<String>()
-        var currentLine = ""
-
-        for (word in words) {
-            val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
-            if (paint.measureText(testLine) <= maxWidth) {
-                currentLine = testLine
-            } else {
-                if (currentLine.isNotEmpty()) {
-                    lines.add(currentLine)
-                }
-                currentLine = word
-
-                // Если даже одно слово не помещается, принудительно добавляем его
-                if (paint.measureText(currentLine) > maxWidth) {
-                    lines.add(currentLine)
-                    currentLine = ""
-                }
-            }
-        }
-
-        if (currentLine.isNotEmpty()) {
-            lines.add(currentLine)
-        }
-
-        return lines
-    }
 }
 
 /**
@@ -315,7 +276,7 @@ class PickingLabelFormat57x40 : LabelFormat {
             textSize = 14f
             typeface = Typeface.create("Arial", Typeface.NORMAL)
         }
-        canvas.drawText(data.description, margin, yPos, namePaint)
+        canvas.drawText(data.partName, margin, yPos, namePaint)
 
         // QR-код справа внизу с UTF-8 поддержкой
         val qrSize = 100
@@ -329,14 +290,12 @@ class PickingLabelFormat57x40 : LabelFormat {
 
         // Количество и ячейка внизу слева
         val bottomY = heightPx - margin - 20f
-        if (data.quantity != null) {
-            val qtyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.BLACK
-                textSize = 18f
-                typeface = Typeface.create("Arial", Typeface.BOLD)
-            }
-            canvas.drawText("Кол-во: ${data.quantity} шт", margin, bottomY, qtyPaint)
+        val qtyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 18f
+            typeface = Typeface.create("Arial", Typeface.BOLD)
         }
+        canvas.drawText("Кол-во: ${data.quantity} шт", margin, bottomY, qtyPaint)
 
         // Ячейка
         val cellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -344,7 +303,7 @@ class PickingLabelFormat57x40 : LabelFormat {
             textSize = 16f
             typeface = Typeface.create("Arial", Typeface.NORMAL)
         }
-        canvas.drawText("Ячейка: ${data.location}", margin, heightPx - margin - 5f, cellPaint)
+        canvas.drawText("Ячейка: ${data.cellCode}", margin, heightPx - margin - 5f, cellPaint)
 
         return bitmap
     }
@@ -422,45 +381,4 @@ enum class LabelType {
             PICKING_57x40 -> "Комплектация 57x40 мм"
         }
     }
-}
-
-/**
- * Расширенный сервис печати с поддержкой форматов
- */
-class ExtendedPrinterService(
-    private val originalService: PrinterService
-) {
-
-    companion object {
-        private const val TAG = "ExtendedPrinterService"
-    }
-
-    /**
-     * Основной метод печати этикетки с выбором формата
-     */
-    suspend fun printLabel(labelData: LabelData, labelType: LabelType = LabelType.ACCEPTANCE_57x40): Result<Unit> {
-        if (originalService.connectionState.value != ConnectionState.CONNECTED) {
-            return Result.failure(PrinterException("Принтер не подключен"))
-        }
-
-        return try {
-            // Логируем данные перед печатью
-            Log.d(TAG, "Printing label with UTF-8 data:")
-            Log.d(TAG, "QR Data: ${labelData.qrData}")
-            Log.d(TAG, "Part Number: ${labelData.partNumber}")
-            Log.d(TAG, "Description: ${labelData.description}")
-
-            // Получаем формат этикетки
-            val format = labelType.getFormat()
-
-            // Создаем изображение этикетки
-            val labelBitmap = format.createBitmap(labelData)
-
-            // Для печати используем оригинальный метод сервиса
-            originalService.printLabel(labelData)
-        } catch (e: Exception) {
-            Log.e(TAG, "Print error", e)
-            Result.failure(PrinterException("Ошибка печати: ${e.message}"))
-        }
-    }
-}
+} 

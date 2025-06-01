@@ -33,9 +33,7 @@ fun StartScreen(
     onReceiveClick: () -> Unit,
     onPickClick: () -> Unit,
     onJournalClick: () -> Unit,
-    onSettingsClick: () -> Unit,
-    onScannerTestClick: (() -> Unit)? = null, // Новый параметр для тестирования сканера
-    logoIcon: ImageVector = Icons.Filled.Warehouse
+    onSettingsClick: () -> Unit
 ) {
     val context = LocalContext.current
     var showExitDialog by remember { mutableStateOf(false) }
@@ -84,7 +82,7 @@ fun StartScreen(
         ) {
             // Секция с логотипом
             Icon(
-                imageVector = logoIcon,
+                imageVector = Icons.Filled.Warehouse,
                 contentDescription = "Логотип приложения",
                 modifier = Modifier
                     .size(160.dp)
@@ -140,21 +138,6 @@ fun StartScreen(
                     border = buttonBorder,
                     icon = Icons.Filled.Settings
                 )
-
-                // Кнопка тестирования сканера (если доступна)
-                if (onScannerTestClick != null) {
-                    StartScreenButton(
-                        text = "Тест сканера",
-                        onClick = onScannerTestClick,
-                        modifier = Modifier.weight(1f).height(72.dp),
-                        border = buttonBorder,
-                        icon = Icons.Filled.Scanner,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.weight(1f))
@@ -249,8 +232,7 @@ fun StartScreenPreview() {
             onReceiveClick = {},
             onPickClick = {},
             onJournalClick = {},
-            onSettingsClick = {},
-            onScannerTestClick = {}
+            onSettingsClick = {}
         )
     }
 }

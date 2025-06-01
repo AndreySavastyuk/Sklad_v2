@@ -5,12 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myprinterapp.data.PrinterSettings
 import com.example.myprinterapp.printer.ConnectionState
-import com.example.myprinterapp.printer.LabelData
+import com.example.myprinterapp.data.models.LabelData
+import com.example.myprinterapp.data.models.LabelType
 import com.example.myprinterapp.printer.PrinterService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import timber.log.Timber
 
 sealed interface SettingsUiState {
     data object Loading : SettingsUiState
@@ -50,7 +52,12 @@ class SettingsViewModel @Inject constructor(
     fun selectPrinter(device: BluetoothDevice) {
         try {
             printerSettings.printerMacAddress = device.address
-            printerSettings.printerName = device.name ?: "Неизвестный принтер"
+            printerSettings.printerMacAddress = device.address
+            printerSettings.printerName = try {
+                device.name ?: "Неизвестный принтер"
+            } catch (e: SecurityException) {
+                "Неизвестный принтер"
+            }
             printerName.value = printerSettings.printerName
             printerMac.value = printerSettings.printerMacAddress
             _uiState.value = SettingsUiState.Success(
@@ -64,24 +71,47 @@ class SettingsViewModel @Inject constructor(
     fun connectPrinter() {
         viewModelScope.launch {
             _uiState.value = SettingsUiState.Loading
-            printerMac.value.let { mac ->
-                if (mac.isNotEmpty()) {
-                    printerService.connect(mac).fold(
-                        onSuccess = {
-                            _uiState.value = SettingsUiState.Success(
-                                isConnected = true,
-                                selectedDevice = mac
-                            )
-                        },
-                        onFailure = { error ->
-                            _uiState.value = SettingsUiState.Error(
-                                "Ошибка подключения: ${error.message}"
-                            )
+            val mac = printerMac.value
+            
+            if (mac.isEmpty()) {
+                _uiState.value = SettingsUiState.Error("Принтер не выбран. Сначала выберите принтер для подключения.")
+                return@launch
+            }
+            
+            // Проверяем формат MAC-адреса
+            val macRegex = "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$".toRegex()
+            if (!macRegex.matches(mac)) {
+                _uiState.value = SettingsUiState.Error("Неверный формат MAC-адреса: $mac")
+                return@launch
+            }
+            
+            timber.log.Timber.d("Attempting to connect to printer with MAC: $mac")
+            
+            try {
+                printerService.connect(mac).fold(
+                    onSuccess = {
+                        timber.log.Timber.i("Successfully connected to printer: $mac")
+                        _uiState.value = SettingsUiState.Success(
+                            isConnected = true,
+                            selectedDevice = mac
+                        )
+                    },
+                    onFailure = { error ->
+                        timber.log.Timber.e(error, "Failed to connect to printer: $mac")
+                        val errorMessage = when {
+                            error.message?.contains("timeout", ignoreCase = true) == true -> 
+                                "Превышено время ожидания подключения. Проверьте:\n• Принтер включен\n• Bluetooth активен\n• Принтер находится в зоне действия"
+                            error.message?.contains("failed", ignoreCase = true) == true -> 
+                                "Не удалось подключиться к принтеру. Проверьте:\n• MAC-адрес ($mac) правильный\n• Принтер не подключен к другому устройству"
+                            else -> 
+                                "Ошибка подключения: ${error.message}\n\nПроверьте:\n• Принтер включен и готов к работе\n• Bluetooth разрешения предоставлены"
                         }
-                    )
-                } else {
-                    _uiState.value = SettingsUiState.Error("Принтер не выбран")
-                }
+                        _uiState.value = SettingsUiState.Error(errorMessage)
+                    }
+                )
+            } catch (e: Exception) {
+                timber.log.Timber.e(e, "Unexpected error during printer connection")
+                _uiState.value = SettingsUiState.Error("Неожиданная ошибка: ${e.message}")
             }
         }
     }
@@ -94,17 +124,49 @@ class SettingsViewModel @Inject constructor(
         )
     }
 
+    fun selectPrinterManually(macAddress: String, printerName: String = "Термопринтер") {
+        try {
+            val cleanMac = macAddress.trim().uppercase()
+            
+            // Проверяем формат MAC-адреса
+            val macRegex = "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$".toRegex()
+            if (!macRegex.matches(cleanMac)) {
+                _uiState.value = SettingsUiState.Error("Неверный формат MAC-адреса. Используйте формат: AA:BB:CC:DD:EE:FF")
+                return
+            }
+            
+            printerSettings.printerMacAddress = cleanMac
+            printerSettings.printerName = printerName
+            printerMac.value = printerSettings.printerMacAddress
+            
+            _uiState.value = SettingsUiState.Success(
+                selectedDevice = cleanMac,
+                isConnected = connectionState.value == ConnectionState.CONNECTED
+            )
+            
+            timber.log.Timber.d("Printer manually selected: $cleanMac")
+        } catch (e: Exception) {
+            _uiState.value = SettingsUiState.Error("Ошибка при выборе принтера: ${e.message}")
+        }
+    }
+
     fun printTestLabel() {
         viewModelScope.launch {
             _uiState.value = SettingsUiState.Loading
             val testLabel = LabelData(
+                type = LabelType.STANDARD,
+                routeCardNumber = "ТК-2025/06/01",
                 partNumber = "TEST-001",
-                description = "Тестовая деталь",
+                partName = "Тестовая деталь",
                 orderNumber = "2024/TEST",
-                location = "A1",
                 quantity = 10,
+                cellCode = "A1-B2-C3",
+                date = "01.06.2025",
                 qrData = "test=2024/TEST=TEST-001=Тестовая деталь",
-                labelType = "Тест"
+                labelType = "Тест",
+                description = "Тестовая деталь",
+                location = "A1",
+                customFields = mapOf("тест" to "значение")
             )
             printerService.printLabel(testLabel).fold(
                 onSuccess = {
@@ -122,3 +184,4 @@ class SettingsViewModel @Inject constructor(
         }
     }
 }
+

@@ -8,6 +8,9 @@ interface PrintLogDao {
     @Query("SELECT * FROM print_log ORDER BY timestamp DESC")
     fun getAllLogs(): Flow<List<PrintLogEntry>>
 
+    @Query("SELECT * FROM print_log ORDER BY timestamp DESC")
+    suspend fun getAllLogsSync(): List<PrintLogEntry>
+
     @Query("SELECT * FROM print_log WHERE id = :id")
     suspend fun getLogById(id: Long): PrintLogEntry?
 

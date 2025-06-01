@@ -1,23 +1,25 @@
 package com.example.myprinterapp.printer
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
+import android.graphics.*
+import android.util.Log
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.example.myprinterapp.data.db.PrintLogEntry
 import com.example.myprinterapp.data.repo.PrintLogRepository
-import com.example.myprinterapp.data.models.LabelData
 import net.posprinter.TSPLConst
 import net.posprinter.TSPLPrinter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import timber.log.Timber
 import java.time.OffsetDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
-
 
 /**
  * Сервис для работы с термопринтером.
@@ -25,10 +27,11 @@ import javax.inject.Singleton
  */
 @Singleton
 class PrinterService @Inject constructor(
-    context: Context,
+    private val context: Context,
     private val printRepo: PrintLogRepository
 ) {
     companion object {
+        private const val TAG = "PrinterService"
         // Таймаут подключения
         private const val CONNECTION_TIMEOUT_MS = 10000L
     }
@@ -40,8 +43,9 @@ class PrinterService @Inject constructor(
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState
 
-    // Состояние печати (приватное, т.к. используется только внутри класса)
+    // Состояние печати
     private val _printingState = MutableStateFlow(PrintingState.IDLE)
+    val printingState: StateFlow<PrintingState> = _printingState
 
     init {
         connectionManager.init()
@@ -50,10 +54,10 @@ class PrinterService @Inject constructor(
     /**
      * Подключение к принтеру по MAC-адресу с таймаутом
      */
-    suspend fun connect(macAddress: String): kotlin.Result<Unit> {
+    suspend fun connect(macAddress: String): Result<Unit> {
         return try {
             _connectionState.value = ConnectionState.CONNECTING
-            Timber.d("Attempting to connect to printer with MAC: $macAddress")
+            Log.d(TAG, "Attempting to connect to printer with MAC: $macAddress")
 
             val connected = withTimeout(CONNECTION_TIMEOUT_MS) {
                 connectionManager.connectAsync(macAddress)
@@ -64,34 +68,34 @@ class PrinterService @Inject constructor(
                 if (deviceConnection != null) {
                     tsplPrinter = TSPLPrinter(deviceConnection)
                     _connectionState.value = ConnectionState.CONNECTED
-                    Timber.i("Successfully connected to printer: $macAddress")
+                    Log.i(TAG, "Successfully connected to printer: $macAddress")
 
                     // Тестовый звуковой сигнал для подтверждения подключения
                     try {
                         tsplPrinter?.sound(2, 100)
                     } catch (e: Exception) {
-                        Timber.w(e, "Failed to play connection sound")
+                        Log.w(TAG, "Failed to play connection sound", e)
                     }
 
-                    kotlin.Result.success(Unit)
+                    Result.success(Unit)
                 } else {
                     _connectionState.value = ConnectionState.DISCONNECTED
-                    Timber.e("Connection object is null after successful connect")
-                    kotlin.Result.failure(PrinterException("Ошибка инициализации принтера"))
+                    Log.e(TAG, "Connection object is null after successful connect")
+                    Result.failure(PrinterException("Ошибка инициализации принтера"))
                 }
             } else {
                 _connectionState.value = ConnectionState.DISCONNECTED
-                Timber.w("Failed to connect to printer: $macAddress")
-                kotlin.Result.failure(PrinterException("Не удалось подключиться к принтеру"))
+                Log.w(TAG, "Failed to connect to printer: $macAddress")
+                Result.failure(PrinterException("Не удалось подключиться к принтеру"))
             }
-        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             _connectionState.value = ConnectionState.DISCONNECTED
-            Timber.e("Connection timeout for $macAddress")
-            kotlin.Result.failure(PrinterException("Превышено время ожидания подключения"))
+            Log.e(TAG, "Connection timeout for $macAddress")
+            Result.failure(PrinterException("Превышено время ожидания подключения"))
         } catch (e: Exception) {
             _connectionState.value = ConnectionState.DISCONNECTED
-            Timber.e(e, "Connection error to $macAddress")
-            kotlin.Result.failure(PrinterException("Ошибка подключения: ${e.message}"))
+            Log.e(TAG, "Connection error to $macAddress", e)
+            Result.failure(PrinterException("Ошибка подключения: ${e.message}"))
         }
     }
 
@@ -103,25 +107,25 @@ class PrinterService @Inject constructor(
             connectionManager.close()
             tsplPrinter = null
             _connectionState.value = ConnectionState.DISCONNECTED
-            Timber.d("Printer disconnected")
+            Log.d(TAG, "Printer disconnected")
         } catch (e: Exception) {
-            Timber.e(e, "Error during disconnect")
+            Log.e(TAG, "Error during disconnect", e)
         }
     }
 
     /**
      * Основной метод печати этикетки с поддержкой форматов
      */
-    suspend fun printLabel(labelData: LabelData, labelType: com.example.myprinterapp.data.models.LabelType = com.example.myprinterapp.data.models.LabelType.STANDARD): kotlin.Result<Unit> {
+    suspend fun printLabel(labelData: LabelData, labelType: LabelType = LabelType.ACCEPTANCE_57x40): Result<Unit> {
         if (_connectionState.value != ConnectionState.CONNECTED) {
-            return kotlin.Result.failure(PrinterException("Принтер не подключен"))
+            return Result.failure(PrinterException("Принтер не подключен"))
         }
 
         return try {
             _printingState.value = PrintingState.PRINTING
 
-            // Получаем формат для данного типа этикетки
-            val format = getLabelFormat(labelType)
+            // Получаем формат
+            val format = labelType.getFormat()
 
             // Создаем изображение этикетки
             val labelBitmap = format.createBitmap(labelData)
@@ -133,31 +137,19 @@ class PrinterService @Inject constructor(
             logPrintOperation(labelData)
 
             _printingState.value = PrintingState.IDLE
-            kotlin.Result.success(Unit)
+            Result.success(Unit)
         } catch (e: Exception) {
             _printingState.value = PrintingState.ERROR
-            Timber.e(e, "Print error")
-            kotlin.Result.failure(PrinterException("Ошибка печати: ${e.message}"))
+            Log.e(TAG, "Print error", e)
+            Result.failure(PrinterException("Ошибка печати: ${e.message}"))
         }
     }
 
     /**
      * Устаревший метод для обратной совместимости
      */
-    suspend fun printLabel(labelData: LabelData): kotlin.Result<Unit> {
-        return printLabel(labelData, com.example.myprinterapp.data.models.LabelType.STANDARD)
-    }
-
-    /**
-     * Получает формат этикетки на основе типа
-     */
-    private fun getLabelFormat(labelType: com.example.myprinterapp.data.models.LabelType): LabelFormat {
-        return when (labelType) {
-            com.example.myprinterapp.data.models.LabelType.STANDARD -> AcceptanceLabelFormat57x40()
-            com.example.myprinterapp.data.models.LabelType.SMALL -> StandardLabelFormat(40.0, 30.0)
-            com.example.myprinterapp.data.models.LabelType.LARGE -> StandardLabelFormat(80.0, 50.0)
-            com.example.myprinterapp.data.models.LabelType.CUSTOM -> StandardLabelFormat(60.0, 45.0)
-        }
+    suspend fun printLabel(labelData: LabelData): Result<Unit> {
+        return printLabel(labelData, LabelType.ACCEPTANCE_57x40)
     }
 
     /**
@@ -167,7 +159,7 @@ class PrinterService @Inject constructor(
         val printer = tsplPrinter ?: throw PrinterException("Принтер не инициализирован")
 
         try {
-            Timber.d("Starting print job")
+            Log.d(TAG, "Starting print job")
 
             // Настройки принтера
             printer.cls()
@@ -186,9 +178,9 @@ class PrinterService @Inject constructor(
             printer.print(1)
             printer.sound(1, 50)
 
-            Timber.d("Print job sent successfully")
+            Log.d(TAG, "Print job sent successfully")
         } catch (e: Exception) {
-            Timber.e(e, "Print bitmap error")
+            Log.e(TAG, "Print bitmap error", e)
             throw PrinterException("Ошибка печати: ${e.message}")
         }
     }
@@ -198,24 +190,43 @@ class PrinterService @Inject constructor(
      */
     private suspend fun logPrintOperation(data: LabelData) {
         val logEntry = PrintLogEntry(
-            timestamp = OffsetDateTime.now(),
-            operationType = data.labelType ?: "Общая",
+            dateTime = OffsetDateTime.now(),
+            labelType = data.labelType,
             partNumber = data.partNumber,
-            partName = data.partName,
-            quantity = data.quantity,
-            location = data.cellCode,
             orderNumber = data.orderNumber,
-            qrData = data.qrData,
-            printerStatus = "SUCCESS"
+            quantity = data.quantity,
+            cellCode = data.location,
+            qrData = data.qrData
         )
 
-        try {
-            printRepo.addPrintLog(logEntry)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to log print operation")
+        printRepo.add(logEntry)
+    }
+
+    /**
+     * Проверка состояния принтера
+     */
+    suspend fun checkPrinterStatus(): Result<PrinterStatus> {
+        if (_connectionState.value != ConnectionState.CONNECTED) {
+            return Result.failure(PrinterException("Принтер не подключен"))
         }
+
+        return Result.success(PrinterStatus.READY)
     }
 }
+
+/**
+ * Модель данных для этикетки
+ */
+data class LabelData(
+    val partNumber: String,
+    val description: String,
+    val orderNumber: String,
+    val location: String,
+    val quantity: Int? = null,
+    val qrData: String,
+    val labelType: String = "Общая",
+    val acceptanceDate: String? = null // Дата приемки
+)
 
 /**
  * Состояния подключения принтера
@@ -236,52 +247,17 @@ enum class PrintingState {
 }
 
 /**
+ * Статус принтера
+ */
+enum class PrinterStatus {
+    READY,
+    BUSY,
+    ERROR,
+    PAPER_OUT,
+    COVER_OPEN
+}
+
+/**
  * Исключение для ошибок принтера
  */
 class PrinterException(message: String) : Exception(message)
-
-/**
- * Стандартная реализация формата этикетки
- */
-class StandardLabelFormat(
-    override val widthMm: Double,
-    override val heightMm: Double,
-    override val dpi: Int = 203
-) : LabelFormat {
-    override fun createBitmap(data: LabelData): Bitmap {
-        val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.WHITE)
-
-        // Рисуем базовую этикетку с рамкой
-        val borderPaint = Paint().apply {
-            color = Color.BLACK
-            style = Paint.Style.STROKE
-            strokeWidth = 2f
-        }
-        canvas.drawRect(1f, 1f, widthPx - 1f, heightPx - 1f, borderPaint)
-
-        // Рисуем основную информацию
-        val textPaint = Paint().apply {
-            color = Color.BLACK
-            textSize = 24f
-            isAntiAlias = true
-        }
-
-        // Рисуем номер детали
-        canvas.drawText("Номер: ${data.partNumber}", 10f, 30f, textPaint)
-
-        // Рисуем название
-        val namePaint = Paint().apply {
-            color = Color.BLACK
-            textSize = 20f
-            isAntiAlias = true
-        }
-        canvas.drawText(data.partName.take(20), 10f, 60f, namePaint)
-
-        // Рисуем номер заказа
-        canvas.drawText("Заказ: ${data.orderNumber}", 10f, 90f, namePaint)
-
-        return bitmap
-    }
-}

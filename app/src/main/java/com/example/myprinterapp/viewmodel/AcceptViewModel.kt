@@ -3,30 +3,46 @@ package com.example.myprinterapp.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.myprinterapp.printer.LabelData
-import com.example.myprinterapp.printer.LabelType
-import com.example.myprinterapp.printer.PrinterService
-import com.example.myprinterapp.printer.ConnectionState
-import com.example.myprinterapp.scanner.BluetoothScannerService
-import com.example.myprinterapp.scanner.ScannerState
+import com.example.myprinterapp.data.models.*
 import com.example.myprinterapp.data.repo.PrintLogRepository
 import com.example.myprinterapp.data.db.PrintLogEntry
+import com.example.myprinterapp.domain.usecase.PrintLabelUseCase
+import com.example.myprinterapp.domain.usecase.GetPrintHistoryUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
-import java.time.LocalDateTime
-import java.time.OffsetDateTime
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import javax.inject.Inject
+
+// Состояния для совместимости
+sealed class AcceptUiState {
+    object Idle : AcceptUiState()
+    object Printing : AcceptUiState()
+    data class Success(val message: String) : AcceptUiState()
+    data class Error(val message: String) : AcceptUiState()
+}
+
+enum class ScannerState { CONNECTED, DISCONNECTED }
+
+data class AcceptanceRecord(
+    val id: String,
+    val timestamp: Long,
+    val qrData: String,
+    val quantity: Int,
+    val cellCode: String,
+    val partNumber: String,
+    val partName: String,
+    val orderNumber: String
+)
 
 @HiltViewModel
 class AcceptViewModel @Inject constructor(
-    private val printerService: PrinterService,
-    val scannerService: BluetoothScannerService,
+    private val printLabelUseCase: PrintLabelUseCase,
+    private val getPrintHistoryUseCase: GetPrintHistoryUseCase,
     private val printLogRepository: PrintLogRepository
 ) : ViewModel() {
 
@@ -44,11 +60,12 @@ class AcceptViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<AcceptUiState>(AcceptUiState.Idle)
     val uiState: StateFlow<AcceptUiState> = _uiState.asStateFlow()
 
-    // Состояние принтера
-    val printerConnectionState: StateFlow<ConnectionState> = printerService.connectionState
+    // Моковые состояния для совместимости (будут заменены позже)
+    private val _printerConnectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
+    val printerConnectionState: StateFlow<ConnectionState> = _printerConnectionState.asStateFlow()
 
-    // Состояние сканера
-    val scannerConnectionState: StateFlow<ScannerState> = scannerService.scannerState
+    private val _scannerConnectionState = MutableStateFlow(ScannerState.DISCONNECTED)
+    val scannerConnectionState: StateFlow<ScannerState> = _scannerConnectionState.asStateFlow()
 
     // История последних операций
     private val _lastOperations = MutableStateFlow<List<AcceptanceRecord>>(emptyList())
@@ -66,32 +83,9 @@ class AcceptViewModel @Inject constructor(
         // Загружаем последние операции при инициализации
         loadLastOperations()
 
-        // Подписываемся на изменения от сканера
-        observeScannerInput()
-
-        // Принудительно проверяем подключение сканера
-        viewModelScope.launch {
-            delay(1000) // Даем время на инициализацию
-            scannerService.forceCheckConnection()
-        }
-
         // Тестируем UTF-8 QR генерацию (только в debug режиме)
         if (com.example.myprinterapp.BuildConfig.DEBUG) {
             testQrGeneration()
-        }
-    }
-
-    /**
-     * Наблюдение за вводом от сканера
-     */
-    private fun observeScannerInput() {
-        viewModelScope.launch {
-            scannerService.lastScannedCode.collect { code ->
-                code?.let {
-                    onBarcodeDetected(it)
-                    scannerService.clearLastScannedCode()
-                }
-            }
         }
     }
 
@@ -157,36 +151,6 @@ class AcceptViewModel @Inject constructor(
     }
 
     /**
-     * Проверка корректности QR-данных перед печатью
-     */
-    private fun validateQrDataBeforePrint(qrData: String): Boolean {
-        return try {
-            // Проверяем, что данные можно корректно закодировать в UTF-8
-            val utf8Bytes = qrData.toByteArray(Charsets.UTF_8)
-            val restored = String(utf8Bytes, Charsets.UTF_8)
-
-            val isValid = qrData == restored && qrData.isNotBlank()
-
-            if (!isValid) {
-                Log.w("QRValidation", "Invalid QR data detected: '$qrData'")
-            } else {
-                Log.d("QRValidation", "QR data validation passed: '$qrData'")
-
-                // Дополнительно логируем информацию о кириллице
-                val hasCyrillic = qrData.any { it in '\u0400'..'\u04FF' }
-                if (hasCyrillic) {
-                    Log.d("QRValidation", "Cyrillic characters detected in QR data")
-                }
-            }
-
-            isValid
-        } catch (e: Exception) {
-            Log.e("QRValidation", "QR validation failed", e)
-            false
-        }
-    }
-
-    /**
      * Изменение количества
      */
     fun onQuantityChange(new: String) {
@@ -199,43 +163,44 @@ class AcceptViewModel @Inject constructor(
      * Изменение кода ячейки
      */
     fun onCellCodeChange(new: String) {
-        val filtered = new.filter { it.isLetterOrDigit() }.take(4).uppercase()
-        _cellCode.value = filtered
+        _cellCode.value = new
     }
 
     /**
-     * Печать этикетки с улучшенной UTF-8 валидацией
+     * Сброс полей ввода
+     */
+    fun onResetInputFields() {
+        _scannedValue.value = null
+        _quantity.value = ""
+        _cellCode.value = ""
+        _uiState.value = AcceptUiState.Idle
+    }
+
+    /**
+     * Очистка сообщений UI
+     */
+    fun onClearMessage() {
+        if (_uiState.value is AcceptUiState.Success || _uiState.value is AcceptUiState.Error) {
+            _uiState.value = AcceptUiState.Idle
+        }
+    }
+
+    /**
+     * Печать этикетки - теперь с UseCase
      */
     fun onPrintLabel() {
-        val scannedData = _scannedValue.value
+        val qr = _scannedValue.value
         val qty = _quantity.value
         val cell = _cellCode.value
 
-        // Валидация
-        if (scannedData == null) {
-            _uiState.value = AcceptUiState.Error("Сначала отсканируйте QR-код")
+        if (qr.isNullOrBlank() || qty.isBlank() || cell.isBlank()) {
+            _uiState.value = AcceptUiState.Error("Заполните все поля")
             return
         }
 
-        // Проверяем UTF-8 валидность QR-данных
-        if (!validateQrDataBeforePrint(scannedData)) {
-            _uiState.value = AcceptUiState.Error("QR-код содержит некорректные символы")
-            return
-        }
-
-        if (qty.isEmpty() || qty.toIntOrNull() == null || qty.toInt() <= 0) {
+        val qtyInt = qty.toIntOrNull()
+        if (qtyInt == null || qtyInt <= 0) {
             _uiState.value = AcceptUiState.Error("Введите корректное количество")
-            return
-        }
-
-        if (cell.isEmpty()) {
-            _uiState.value = AcceptUiState.Error("Введите код ячейки")
-            return
-        }
-
-        // Проверка подключения принтера
-        if (printerConnectionState.value != ConnectionState.CONNECTED) {
-            _uiState.value = AcceptUiState.Error("Принтер не подключен. Перейдите в настройки")
             return
         }
 
@@ -243,110 +208,77 @@ class AcceptViewModel @Inject constructor(
             _uiState.value = AcceptUiState.Printing
 
             try {
-                // Парсим QR-код
-                val parts = scannedData.split('=')
-                if (parts.size < 4) {
+                // Парсим QR данные
+                val qrParts = qr.split('=')
+                if (qrParts.size < 4) {
                     _uiState.value = AcceptUiState.Error("Неверный формат QR-кода")
                     return@launch
                 }
 
-                // Log для отладки UTF-8
-                Log.d("AcceptViewModel", "=== QR Parts UTF-8 Analysis ===")
-                parts.forEachIndexed { index, part ->
-                    val utf8Bytes = part.toByteArray(Charsets.UTF_8)
-                    Log.d("AcceptViewModel", "Part $index: '$part'")
-                    Log.d("AcceptViewModel", "  UTF-8 bytes: ${utf8Bytes.contentToString()}")
-                    Log.d("AcceptViewModel", "  Has cyrillic: ${part.any { it in '\u0400'..'\u04FF' }}")
+                val routeCardNumber = qrParts.getOrNull(0) ?: ""
+                val orderNumber = qrParts.getOrNull(1) ?: ""
+                val partNumber = qrParts.getOrNull(2) ?: ""
+                val partName = qrParts.getOrNull(3) ?: ""
+
+                // Создаем LabelData
+                val labelData = LabelData(
+                    type = LabelType.STANDARD,
+                    routeCardNumber = routeCardNumber,
+                    partNumber = partNumber,
+                    partName = partName,
+                    orderNumber = orderNumber,
+                    quantity = qtyInt,
+                    cellCode = cell,
+                    date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date()),
+                    qrData = "$routeCardNumber=$orderNumber=$partNumber=$qtyInt=$cell"
+                )
+
+                // Используем UseCase для печати
+                val result = printLabelUseCase(PrintLabelUseCase.Params(labelData))
+                
+                when (result) {
+                    is Result.Success -> {
+                        _uiState.value = AcceptUiState.Success("Этикетка успешно напечатана")
+                        // Очищаем поля после успешной печати
+                        onResetInputFields()
+                        // Обновляем историю операций
+                        loadLastOperations()
+                    }
+                    is Result.Error -> {
+                        _uiState.value = AcceptUiState.Error("Ошибка печати: ${result.message}")
+                    }
                 }
 
-                // Добавляем дату приемки
-                val acceptanceDate = LocalDateTime.now()
-                val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
-
-                val labelData = LabelData(
-                    partNumber = parts[2],
-                    description = parts[3],
-                    orderNumber = parts[1],
-                    location = cell,
-                    quantity = qty.toInt(),
-                    qrData = scannedData,
-                    labelType = "Приемка",
-                    acceptanceDate = acceptanceDate.format(dateFormatter)
-                )
-
-                Log.d("AcceptViewModel", "=== Label Data for Printing ===")
-                Log.d("AcceptViewModel", "QR Data: ${labelData.qrData}")
-                Log.d("AcceptViewModel", "Part Number: ${labelData.partNumber}")
-                Log.d("AcceptViewModel", "Description: ${labelData.description}")
-                Log.d("AcceptViewModel", "Order Number: ${labelData.orderNumber}")
-
-                // Используем основной сервис с форматом для приемки
-                printerService.printLabel(labelData, LabelType.ACCEPTANCE_57x40)
-                    .onSuccess {
-                        _uiState.value = AcceptUiState.Success("Этикетка напечатана")
-
-                        // Сохраняем запись о приемке
-                        val record = AcceptanceRecord(
-                            id = System.currentTimeMillis().toString(),
-                            partNumber = parts[2],
-                            partName = parts[3],
-                            orderNumber = parts[1],
-                            quantity = qty.toInt(),
-                            cellCode = cell,
-                            qrData = scannedData,
-                            acceptedAt = acceptanceDate,
-                            routeCardNumber = parts[0]
-                        )
-                        addToHistory(record)
-
-                        // Сохраняем в базу данных
-                        saveToDatabase(labelData, "SUCCESS")
-
-                        // Очищаем поля после успешной печати
-                        resetInputFields()
-                    }
-                    .onFailure { error ->
-                        val errorMessage = "Ошибка печати: ${error.message ?: "Неизвестная ошибка"}"
-                        _uiState.value = AcceptUiState.Error(errorMessage)
-
-                        // Сохраняем неудачную попытку в БД
-                        saveToDatabase(labelData, "FAILED", error.message)
-                    }
             } catch (e: Exception) {
-                _uiState.value = AcceptUiState.Error(
-                    "Ошибка: ${e.message ?: "Неизвестная ошибка"}"
-                )
+                Log.e("AcceptViewModel", "Print error", e)
+                _uiState.value = AcceptUiState.Error("Ошибка печати: ${e.message}")
             }
         }
     }
 
     /**
-     * Сохранение записи в базу данных
+     * Загрузка последних операций
      */
-    private suspend fun saveToDatabase(
-        labelData: LabelData,
-        status: String,
-        errorMessage: String? = null
-    ) {
-        try {
-            val logEntry = PrintLogEntry(
-                timestamp = OffsetDateTime.now(),
-                operationType = "ACCEPT",
-                partNumber = labelData.partNumber,
-                partName = labelData.description,
-                quantity = labelData.quantity,
-                location = labelData.location,
-                orderNumber = labelData.orderNumber,
-                qrData = labelData.qrData,
-                printerStatus = status,
-                errorMessage = errorMessage,
-                userName = null, // TODO: Добавить поддержку пользователей
-                deviceId = android.os.Build.MODEL
-            )
-
-            printLogRepository.addLog(logEntry)
-        } catch (e: Exception) {
-            Log.e("AcceptViewModel", "Error saving to database", e)
+    private fun loadLastOperations() {
+        viewModelScope.launch {
+            try {
+                getPrintHistoryUseCase().collect { logEntries ->
+                    _lastOperations.value = logEntries.take(10).map { entry ->
+                        AcceptanceRecord(
+                            id = entry.id.toString(),
+                            timestamp = entry.timestamp.toEpochSecond() * 1000,
+                            qrData = entry.qrData,
+                            quantity = entry.quantity,
+                            cellCode = entry.location,
+                            partNumber = entry.partNumber,
+                            partName = entry.partName,
+                            orderNumber = entry.orderNumber ?: ""
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AcceptViewModel", "Error loading operations", e)
+            }
         }
     }
 
@@ -354,59 +286,10 @@ class AcceptViewModel @Inject constructor(
      * Открытие последней операции для редактирования
      */
     fun openLastOperation() {
-        _lastOperations.value.firstOrNull()?.let { record ->
-            _editingRecord.value = record
+        val operations = _lastOperations.value
+        if (operations.isNotEmpty()) {
+            _editingRecord.value = operations.first()
             _showEditDialog.value = true
-        }
-    }
-
-    /**
-     * Обновление записи после редактирования
-     */
-    fun updateRecord(recordId: String, newQuantity: Int, newCellCode: String) {
-        viewModelScope.launch {
-            val record = _lastOperations.value.find { it.id == recordId } ?: return@launch
-
-            // Обновляем запись
-            val updatedRecord = record.copy(
-                quantity = newQuantity,
-                cellCode = newCellCode,
-                editedAt = LocalDateTime.now()
-            )
-
-            // Обновляем историю
-            _lastOperations.value = _lastOperations.value.map {
-                if (it.id == recordId) updatedRecord else it
-            }
-
-            // Печатаем новую этикетку
-            val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy")
-            val labelData = LabelData(
-                partNumber = record.partNumber,
-                description = "${record.partName} (Изменено)",
-                orderNumber = record.orderNumber,
-                location = newCellCode,
-                quantity = newQuantity,
-                qrData = record.qrData,
-                labelType = "Приемка (изм.)",
-                acceptanceDate = record.acceptedAt.format(dateFormatter)
-            )
-
-            Log.d("AcceptViewModel", "Reprinting label with updated data:")
-            Log.d("AcceptViewModel", "QR: ${labelData.qrData}")
-            Log.d("AcceptViewModel", "Quantity: $newQuantity, Cell: $newCellCode")
-
-            printerService.printLabel(labelData, LabelType.ACCEPTANCE_57x40)
-                .onSuccess {
-                    _uiState.value = AcceptUiState.Success("Исправленная этикетка напечатана")
-                    _showEditDialog.value = false
-
-                    // Сохраняем обновление в БД
-                    saveToDatabase(labelData, "SUCCESS")
-                }
-                .onFailure { error ->
-                    _uiState.value = AcceptUiState.Error("Ошибка печати: ${error.message}")
-                }
         }
     }
 
@@ -419,95 +302,18 @@ class AcceptViewModel @Inject constructor(
     }
 
     /**
-     * Сброс полей ввода
+     * Обновление записи
      */
-    fun resetInputFields() {
-        _quantity.value = ""
-        _cellCode.value = ""
-        _scannedValue.value = null
-    }
-
-    /**
-     * Очистка сообщений об ошибках/успехе
-     */
-    fun clearMessage() {
-        if (_uiState.value !is AcceptUiState.Printing) {
-            _uiState.value = AcceptUiState.Idle
-        }
-    }
-
-    /**
-     * Добавление записи в историю
-     */
-    private fun addToHistory(record: AcceptanceRecord) {
-        val currentHistory = _lastOperations.value.toMutableList()
-        currentHistory.add(0, record) // Добавляем в начало
-        // Оставляем только последние 10 записей
-        _lastOperations.value = currentHistory.take(10)
-    }
-
-    /**
-     * Загрузка последних операций из БД
-     */
-    private fun loadLastOperations() {
+    fun updateRecord(id: String, quantity: Int, cellCode: String) {
         viewModelScope.launch {
-            printLogRepository.getRecentLogs(10).collect { logs ->
-                _lastOperations.value = logs
-                    .filter { it.operationType == "ACCEPT" }
-                    .map { log ->
-                        // Конвертируем из БД в модель UI
-                        AcceptanceRecord(
-                            id = log.id.toString(),
-                            partNumber = log.partNumber,
-                            partName = log.partName,
-                            orderNumber = log.orderNumber ?: "",
-                            quantity = log.quantity,
-                            cellCode = log.location,
-                            qrData = log.qrData,
-                            acceptedAt = log.timestamp.toLocalDateTime(),
-                            routeCardNumber = log.qrData.split('=').firstOrNull() ?: "",
-                            editedAt = null
-                        )
-                    }
+            try {
+                // TODO: Реализовать обновление записи в базе
+                Log.d("AcceptViewModel", "Updating record $id: qty=$quantity, cell=$cellCode")
+                closeEditDialog()
+                loadLastOperations()
+            } catch (e: Exception) {
+                Log.e("AcceptViewModel", "Error updating record", e)
             }
         }
     }
-
-    /**
-     * Получение инструкций по настройке сканера
-     */
-    fun getScannerSetupInstructions(): String {
-        return scannerService.getSetupInstructions()
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        scannerService.cleanup()
-    }
 }
-
-/**
- * Состояния UI экрана приемки
- */
-sealed class AcceptUiState {
-    object Idle : AcceptUiState()
-    object Printing : AcceptUiState()
-    data class Success(val message: String) : AcceptUiState()
-    data class Error(val message: String) : AcceptUiState()
-}
-
-/**
- * Запись о приемке товара
- */
-data class AcceptanceRecord(
-    val id: String,
-    val partNumber: String,
-    val partName: String,
-    val orderNumber: String,
-    val quantity: Int,
-    val cellCode: String,
-    val qrData: String,
-    val acceptedAt: LocalDateTime,
-    val routeCardNumber: String,
-    val editedAt: LocalDateTime? = null
-)

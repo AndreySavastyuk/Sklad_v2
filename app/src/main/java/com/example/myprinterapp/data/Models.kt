@@ -121,12 +121,27 @@ data class TaskTransferData(
     val transferredBy: String? = null,
     val deviceId: String? = null
 )
+
 enum class ScannerConnectionState {
     DISCONNECTED,
     SEARCHING,
     CONNECTING,
     CONNECTED
 }
+
+// Временные заглушки для недостающих типов
+enum class Symbology {
+    QR_CODE, CODE_128, CODE_39, EAN_13, DATA_MATRIX
+}
+
+enum class CharacterSet {
+    UTF8, LATIN1, WINDOWS1251
+}
+
+data class ScannerConfig(
+    val enabled: Boolean = true,
+    val beepOnScan: Boolean = true
+)
 
 data class EnhancedScanData(
     val data: String,
@@ -137,7 +152,37 @@ data class EnhancedScanData(
     val timestamp: Long,
     val quality: Int,
     val characterSet: CharacterSet
-)
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as EnhancedScanData
+
+        if (data != other.data) return false
+        if (!rawData.contentEquals(other.rawData)) return false
+        if (symbology != other.symbology) return false
+        if (aimId != other.aimId) return false
+        if (codeId != other.codeId) return false
+        if (timestamp != other.timestamp) return false
+        if (quality != other.quality) return false
+        if (characterSet != other.characterSet) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = data.hashCode()
+        result = 31 * result + rawData.contentHashCode()
+        result = 31 * result + symbology.hashCode()
+        result = 31 * result + (aimId?.hashCode() ?: 0)
+        result = 31 * result + (codeId?.hashCode() ?: 0)
+        result = 31 * result + timestamp.hashCode()
+        result = 31 * result + quality
+        result = 31 * result + characterSet.hashCode()
+        return result
+    }
+}
 
 data class ScannerDetailedInfo(
     val name: String,
