@@ -6,7 +6,7 @@ import com.example.myprinterapp.data.db.AppDatabase
 import com.example.myprinterapp.data.repo.*
 import com.example.myprinterapp.domain.usecase.*
 import com.example.myprinterapp.printer.PrinterManager
-import com.example.myprinterapp.printer.PrinterManagerImpl
+import com.example.myprinterapp.printer.RealPrinterManager
 import com.example.myprinterapp.printer.PrinterService
 import com.example.myprinterapp.data.PrinterSettings
 import com.example.myprinterapp.scanner.ScannerManager
@@ -94,14 +94,26 @@ object AppModule {
     // Менеджеры устройств
     @Provides
     @Singleton
-    fun providePrinterManager(@ApplicationContext context: Context): PrinterManager {
-        return PrinterManagerImpl(context)
+    fun providePrinterManager(
+        printerService: PrinterService,
+        printerSettings: PrinterSettings
+    ): PrinterManager {
+        return RealPrinterManager(printerService, printerSettings)
     }
 
     @Provides
     @Singleton
-    fun provideScannerManager(@ApplicationContext context: Context): ScannerManager {
-        return ScannerManagerImpl(context)
+    fun provideBleScannerManager(@ApplicationContext context: Context): com.example.myprinterapp.scanner.BleScannerManager {
+        return com.example.myprinterapp.scanner.BleScannerManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideScannerManager(
+        @ApplicationContext context: Context,
+        bleScannerManager: com.example.myprinterapp.scanner.BleScannerManager
+    ): ScannerManager {
+        return ScannerManagerImpl(context, bleScannerManager)
     }
 
     // QR парсер

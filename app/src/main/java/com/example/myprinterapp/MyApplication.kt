@@ -3,6 +3,8 @@ package com.example.myprinterapp
 import android.app.Application
 import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
+import com.nlscan.ble.NlsBleManager
+import com.nlscan.ble.NlsReportHelper
 
 @HiltAndroidApp
 class MyApplication : Application() {
@@ -12,8 +14,8 @@ class MyApplication : Application() {
         // Инициализация логирования
         initLogging()
         
-        // Инициализация SDK принтеров
-        initPrinterSdks()
+        // Инициализация SDK принтеров и сканеров
+        initSdks()
         
         Timber.d("Приложение инициализировано")
     }
@@ -25,32 +27,32 @@ class MyApplication : Application() {
         }
     }
 
-    private fun initPrinterSdks() {
+    private fun initSdks() {
         try {
-            // Инициализируем Newland BLE SDK
+            // Инициализируем Newland BLE SDK для сканеров
             initNewlandSdk()
             
             // Инициализируем OnSemi SDK  
             initOnSemiSdk()
             
-            Timber.d("SDK принтеров инициализированы")
+            Timber.d("SDK принтеров и сканеров инициализированы")
         } catch (e: Exception) {
-            Timber.e(e, "Ошибка инициализации SDK принтеров")
+            Timber.e(e, "Ошибка инициализации SDK")
         }
     }
 
     private fun initNewlandSdk() {
         try {
-            // Инициализируем Newland BLE менеджер
-            // NlsBleManager.getInstance().init(this)
-
-            // Включаем логирование для отладки
-            // NlsReportHelper.getInstance().init(this)
-            // NlsReportHelper.getInstance().setSaveLogEnable(BuildConfig.DEBUG)
+            // Инициализируем Newland BLE SDK (обязательно)
+            NlsBleManager.getInstance().init(this)
             
-            Timber.d("Newland SDK готов к инициализации")
+            // Включаем сохранение логов (опционально, но рекомендуется при отладке)
+            NlsReportHelper.getInstance().init(this)
+            NlsReportHelper.getInstance().setSaveLogEnable(BuildConfig.ENABLE_LOGGING)
+            
+            Timber.d("Newland BLE SDK инициализирован")
         } catch (e: Exception) {
-            Timber.e(e, "Ошибка инициализации Newland SDK")
+            Timber.e(e, "Ошибка инициализации Newland BLE SDK")
         }
     }
     

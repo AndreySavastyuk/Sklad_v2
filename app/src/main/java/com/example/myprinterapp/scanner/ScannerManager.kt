@@ -9,6 +9,10 @@ import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import android.util.Log
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 /**
  * Интерфейс для управления сканерами
@@ -42,7 +46,7 @@ interface ScannerManager {
     /**
      * Получение последнего отсканированного результата
      */
-    fun getLastScanResult(): Flow<ScanResult?>
+    fun getLastScanResult(): Flow<com.example.myprinterapp.data.models.ScanResult?>
     
     /**
      * Начать сканирование
@@ -58,6 +62,11 @@ interface ScannerManager {
      * Получить состояние сканирования
      */
     fun getScanningState(): Flow<ScanningState>
+    
+    /**
+     * Получить BLE Scanner Manager для специфичных BLE операций
+     */
+    fun getBleScannerManager(): BleScannerManager?
 }
 
 enum class ScanningState {
@@ -68,21 +77,26 @@ enum class ScanningState {
 }
 
 /**
- * Улучшенная реализация ScannerManager
+ * Улучшенная реализация ScannerManager с поддержкой BLE сканеров
  */
-class ScannerManagerImpl(
-    private val context: android.content.Context
+@Singleton
+class ScannerManagerImpl @Inject constructor(
+    private val context: android.content.Context,
+    private val bleScannerManager: BleScannerManager
 ) : ScannerManager {
     
     private val connectedDevices = mutableMapOf<String, DeviceInfo>()
     private var defaultDevice: DeviceInfo? = null
     
-    private val _lastScanResult = MutableStateFlow<ScanResult?>(null)
+    private val _lastScanResult = MutableStateFlow<com.example.myprinterapp.data.models.ScanResult?>(null)
     private val _scanningState = MutableStateFlow(ScanningState.IDLE)
     
     init {
         // Имитируем автоподключение к устройству по умолчанию
         setupDefaultDevice()
+        
+        // Наблюдаем за результатами BLE сканирования
+        observeBleScanResults()
     }
     
     private fun setupDefaultDevice() {
@@ -102,10 +116,69 @@ class ScannerManagerImpl(
         Log.d("ScannerManager", "Настроено устройство по умолчанию: ${defaultScanner.name}")
     }
     
+    private fun observeBleScanResults() {
+        // ИСПРАВЛЕНИЕ: Реальное наблюдение за Flow из BLE Scanner Manager
+        kotlinx.coroutines.GlobalScope.launch {
+            bleScannerManager.scanResult.collect { result ->
+                if (result != null) {
+                    Log.d("ScannerManager", "Получен результат от BLE сканера: ${result.data}")
+                    _lastScanResult.value = result
+                    _scanningState.value = ScanningState.IDLE
+                }
+            }
+        }
+        
+        // Также наблюдаем за подключенными BLE устройствами
+        kotlinx.coroutines.GlobalScope.launch {
+            bleScannerManager.connectedDevice.collect { device ->
+                if (device != null) {
+                    Log.d("ScannerManager", "BLE устройство подключено: ${device.name}")
+                    connectedDevices[device.id] = device
+                    if (defaultDevice?.id == "default_scanner") {
+                        defaultDevice = device
+                    }
+                } else {
+                    // Удаляем BLE устройства при отключении
+                    connectedDevices.values.removeAll { it.type == DeviceType.SCANNER_BLE }
+                    if (defaultDevice?.type == DeviceType.SCANNER_BLE) {
+                        setupDefaultDevice()
+                    }
+                }
+            }
+        }
+    }
+    
     override suspend fun connectDevice(deviceId: String, deviceType: DeviceType): DeviceInfo {
         Log.d("ScannerManager", "Подключение к сканеру: $deviceId")
         
-        // Имитируем процесс подключения
+        // Если это BLE устройство, используем BLE Manager
+        if (deviceType == DeviceType.SCANNER_BLE && deviceId.startsWith("ble_")) {
+            // В реальном приложении здесь бы было подключение через BLE Scanner Manager
+            Log.d("ScannerManager", "Используем BLE Scanner Manager для подключения")
+            
+            // Имитируем BLE подключение
+            kotlinx.coroutines.delay(3000)
+            
+            val device = DeviceInfo(
+                id = deviceId,
+                name = "Newland BLE Scanner",
+                address = generateMockAddress(deviceType),
+                type = deviceType,
+                connectionState = ConnectionState.CONNECTED,
+                lastConnected = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
+                batteryLevel = (60..100).random()
+            )
+            
+            connectedDevices[deviceId] = device
+            
+            // Устанавливаем как устройство по умолчанию
+            defaultDevice = device
+            
+            Log.i("ScannerManager", "BLE сканер подключен: ${device.name}")
+            return device
+        }
+        
+        // Обычное подключение для других типов сканеров
         kotlinx.coroutines.delay(2000)
         
         val deviceName = when (deviceType) {
@@ -141,7 +214,7 @@ class ScannerManagerImpl(
         // Возвращаем список доступных устройств включая подключенные
         val availableDevices = listOf(
             DeviceInfo(
-                id = "mock_ble_scanner_001",
+                id = "ble_newland_scanner_001",
                 name = "Newland BLE Scanner #1",
                 address = "NL:BL:E0:01:23:45",
                 type = DeviceType.SCANNER_BLE,
@@ -149,7 +222,7 @@ class ScannerManagerImpl(
                 batteryLevel = 85
             ),
             DeviceInfo(
-                id = "mock_bt_scanner_001",
+                id = "mock_bt_scanner_001", 
                 name = "Bluetooth Scanner #1",
                 address = "AA:BB:CC:DD:EE:F1",
                 type = DeviceType.SCANNER_BLUETOOTH,
@@ -157,8 +230,8 @@ class ScannerManagerImpl(
                 batteryLevel = 65
             ),
             DeviceInfo(
-                id = "mock_ble_scanner_002",
-                name = "OnSemi BLE Scanner #2",
+                id = "ble_onsemi_scanner_002",
+                name = "OnSemi BLE Scanner #2", 
                 address = "OS:BL:E0:02:34:56",
                 type = DeviceType.SCANNER_BLE,
                 connectionState = ConnectionState.DISCONNECTED,
@@ -178,6 +251,11 @@ class ScannerManagerImpl(
         if (device != null) {
             Log.d("ScannerManager", "Отключение сканера: ${device.name}")
             
+            // Если это BLE устройство, используем BLE Manager
+            if (device.type == DeviceType.SCANNER_BLE && deviceId.startsWith("ble_")) {
+                bleScannerManager.disconnectScanner()
+            }
+            
             // Если это было устройство по умолчанию, возвращаемся к встроенной камере
             if (defaultDevice?.id == deviceId) {
                 setupDefaultDevice()
@@ -189,7 +267,7 @@ class ScannerManagerImpl(
         return connectedDevices.containsKey(deviceId)
     }
     
-    override fun getLastScanResult(): Flow<ScanResult?> {
+    override fun getLastScanResult(): Flow<com.example.myprinterapp.data.models.ScanResult?> {
         return _lastScanResult.asStateFlow()
     }
     
@@ -225,17 +303,21 @@ class ScannerManagerImpl(
         return _scanningState.asStateFlow()
     }
     
+    override fun getBleScannerManager(): BleScannerManager {
+        return bleScannerManager
+    }
+    
     /**
      * Симуляция получения результата сканирования (для тестирования)
      * В реальном приложении это вызывалось бы из callback'ов камеры или BLE устройства
      */
-    fun simulateScanResult(data: String, format: BarcodeFormat = BarcodeFormat.QR_CODE) {
-        val scanResult = ScanResult(
+    suspend fun simulateScanResult(data: String, format: BarcodeFormat = BarcodeFormat.QR_CODE) {
+        val scanResult = com.example.myprinterapp.data.models.ScanResult(
             data = data,
             format = format,
             deviceId = defaultDevice?.id,
             isProcessed = false,
-            metadata = ScanMetadata(
+            metadata = com.example.myprinterapp.data.models.ScanMetadata(
                 quality = 0.9f,
                 orientation = 0
             )

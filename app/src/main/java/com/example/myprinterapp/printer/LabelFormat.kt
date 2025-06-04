@@ -7,6 +7,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import android.util.Log
 import com.example.myprinterapp.data.models.LabelData
+import com.example.myprinterapp.printer.LabelFormat
 
 interface LabelFormat {
     val widthMm: Double
@@ -50,91 +51,70 @@ class AcceptanceLabelFormat57x40 : LabelFormat {
         val qrY = 95f
         val qrSize = 200
 
-        // Валидируем QR-данные перед генерацией
-        val validatedQrData = validateQrData(data.qrData)
-        val qrBitmap = generateQRCode(validatedQrData, qrSize)
-        canvas.drawBitmap(qrBitmap, qrX, qrY, null)
+        try {
+            val hints = mapOf(
+                EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
+                EncodeHintType.CHARACTER_SET to "UTF-8",
+                EncodeHintType.MARGIN to 1
+            )
 
-        // Номер детали
-        val partNumberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            val bitMatrix = QRCodeWriter().encode(data.qrData, BarcodeFormat.QR_CODE, qrSize, qrSize, hints)
+            val qrBitmap = Bitmap.createBitmap(qrSize, qrSize, Bitmap.Config.ARGB_8888)
+
+            for (x in 0 until qrSize) {
+                for (y in 0 until qrSize) {
+                    qrBitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
+                }
+            }
+
+            canvas.drawBitmap(qrBitmap, qrX, qrY, null)
+        } catch (e: Exception) {
+            Log.e("AcceptanceLabelFormat", "QR code generation error", e)
+        }
+
+        // Текстовая информация
+        val textPaint = Paint().apply {
             color = Color.BLACK
-            typeface = Typeface.create("Arial", Typeface.BOLD)
-            textSize = 45f
-            textAlign = Paint.Align.CENTER
+            textSize = 24f
+            isAntiAlias = true
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
-        // Устанавливаем X позицию в центр этикетки
-        val centerX = widthPx / 2f
-
-        // Адаптивное масштабирование текста
-        var fontSize = 42f
-        partNumberPaint.textSize = fontSize
-        var textWidth = partNumberPaint.measureText(data.partNumber)
-        val maxWidth = widthPx - 16f
-
-        // Если текст не помещается, уменьшаем размер шрифта
-        while (textWidth > maxWidth && fontSize > 20f) {
-            fontSize -= 2f
-            partNumberPaint.textSize = fontSize
-            textWidth = partNumberPaint.measureText(data.partNumber)
-        }
-
-        // Рисуем текст по центру этикетки
-        canvas.drawText(data.partNumber, centerX, 47f, partNumberPaint)
-
-        // Рамка ячейки
-        val cellBoxX = 233f
-        val cellBoxY = 177f
-        val cellBoxWidth = 195f
-        val cellBoxHeight = 119f
-        val cellBorderPaint = Paint().apply {
+        val smallTextPaint = Paint().apply {
             color = Color.BLACK
-            style = Paint.Style.STROKE
-            strokeWidth = 2f
+            textSize = 20f
+            isAntiAlias = true
         }
-        canvas.drawRect(cellBoxX, cellBoxY, cellBoxX + cellBoxWidth, cellBoxY + cellBoxHeight, cellBorderPaint)
 
-        // Текст ячейки
-        val cellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 79f
-            typeface = Typeface.create("Arial", Typeface.BOLD)
-            textAlign = Paint.Align.CENTER
-        }
-        val cellTextY = cellBoxY + (cellBoxHeight + cellPaint.textSize) / 2 - 6f
-        canvas.drawText(data.cellCode, cellBoxX + cellBoxWidth / 2, cellTextY, cellPaint)
+        // Заголовок "ПРИЕМКА"
+        textPaint.textSize = 30f
+        canvas.drawText("ПРИЕМКА", widthPx/2 - 70f, margin + 25f, textPaint)
 
-        // Наименование детали
-        val namePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 18f
-            typeface = Typeface.create("Arial", Typeface.NORMAL)
-        }
-        canvas.drawText(data.partName, 243f, 82f, namePaint)
+        // Артикул
+        textPaint.textSize = 24f
+        canvas.drawText("Арт: ${data.partNumber}", margin + 10f, margin + 55f, textPaint)
 
-        // Номер заказа
-        val orderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 28f
-            typeface = Typeface.create("Arial", Typeface.NORMAL)
-        }
-        canvas.drawText(data.orderNumber, 223f, 154f, orderPaint)
+        // Наименование (с ограничением длины)
+        val description = if ((data.partName ?: "").length > 20)
+            (data.partName ?: "").substring(0, 20) + "..."
+        else
+            data.partName ?: ""
+        smallTextPaint.textSize = 18f
+        canvas.drawText(description, margin + 10f, margin + 80f, smallTextPaint)
 
-        // Количество
-        val quantityPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 12f
-            typeface = Typeface.create("Arial", Typeface.NORMAL)
-        }
-        canvas.drawText("Кол-во: ${data.quantity} шт", 21f, 87f, quantityPaint)
+        // Заказ справа от QR-кода
+        smallTextPaint.textSize = 22f
+        canvas.drawText("Заказ:", qrX + qrSize + 10f, qrY + 35f, smallTextPaint)
+        canvas.drawText(data.orderNumber, qrX + qrSize + 10f, qrY + 60f, smallTextPaint)
 
-        // Дата
-        val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            textSize = 10f
-            typeface = Typeface.create("Arial", Typeface.NORMAL)
-        }
-        canvas.drawText("Дата: ${data.date}", 110f, 86f, datePaint)
+        // Локация (если есть)
+        canvas.drawText("Локация:", qrX + qrSize + 10f, qrY + 95f, smallTextPaint)
+        val location = data.location ?: data.cellCode
+        canvas.drawText(location, qrX + qrSize + 10f, qrY + 120f, smallTextPaint)
+
+        // Дата (используем поле date вместо acceptanceDate)
+        smallTextPaint.textSize = 18f
+        canvas.drawText("Дата: ${data.date}", 16f, heightPx - margin - 10f, smallTextPaint)
 
         return bitmap
     }
@@ -381,4 +361,5 @@ enum class LabelType {
             PICKING_57x40 -> "Комплектация 57x40 мм"
         }
     }
-} 
+}
+

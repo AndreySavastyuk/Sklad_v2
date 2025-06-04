@@ -228,5 +228,7 @@ private fun PrintLogItem(
 
 private fun formatTimestamp(timestamp: java.time.OffsetDateTime): String {
     val formatter = java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss")
-    return timestamp.format(formatter)
+    // Преобразуем в локальное время
+    val localDateTime = timestamp.toLocalDateTime()
+    return localDateTime.format(formatter)
 } 

@@ -33,7 +33,8 @@ fun StartScreen(
     onReceiveClick: () -> Unit,
     onPickClick: () -> Unit,
     onJournalClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onExpressConnectionClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var showExitDialog by remember { mutableStateOf(false) }
@@ -52,6 +53,19 @@ fun StartScreen(
                     )
                 },
                 actions = {
+                    // Кнопка экспресс-подключения в углу
+                    IconButton(
+                        onClick = onExpressConnectionClick,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Speed,
+                            contentDescription = "Экспресс-подключение",
+                            modifier = Modifier.size(32.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    
                     // Кнопка выхода в углу
                     IconButton(
                         onClick = { showExitDialog = true },
@@ -89,6 +103,31 @@ fun StartScreen(
                     .padding(bottom = 48.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
+
+            // Первая кнопка - Экспресс-подключение (выделенная)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+            ) {
+                StartScreenButton(
+                    text = "⚡ Экспресс-подключение",
+                    onClick = onExpressConnectionClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(80.dp),
+                    border = null,
+                    icon = Icons.Filled.Speed,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Кнопки меню
             val buttonModifier = Modifier

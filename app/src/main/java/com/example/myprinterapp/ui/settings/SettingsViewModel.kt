@@ -12,7 +12,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import timber.log.Timber
+import android.annotation.SuppressLint
 
 sealed interface SettingsUiState {
     data object Loading : SettingsUiState
@@ -22,6 +22,7 @@ sealed interface SettingsUiState {
         val pairedDevices: List<BluetoothDeviceInfo> = emptyList()
     ) : SettingsUiState
     data class Error(val message: String) : SettingsUiState
+    data class PermissionRequired(val explanation: String) : SettingsUiState
 }
 
 data class BluetoothDeviceInfo(
@@ -42,22 +43,48 @@ class SettingsViewModel @Inject constructor(
     val printerName = MutableStateFlow(printerSettings.printerName)
     val printerMac = MutableStateFlow(printerSettings.printerMacAddress)
 
+    // Колбэк для запроса разрешений от Activity
+    var onRequestBluetoothPermissions: ((onGranted: () -> Unit, onDenied: (List<String>) -> Unit) -> Unit)? = null
+
     init {
         _uiState.value = SettingsUiState.Success(
             isConnected = connectionState.value == ConnectionState.CONNECTED,
             selectedDevice = printerSettings.printerMacAddress
         )
+
+        // Наблюдаем за состоянием подключения для автоматического обновления UI
+        viewModelScope.launch {
+            connectionState.collect { state ->
+                when (state) {
+                    ConnectionState.CONNECTED -> {
+                        _uiState.value = SettingsUiState.Success(
+                            isConnected = true,
+                            selectedDevice = printerMac.value
+                        )
+                    }
+                    ConnectionState.CONNECTING -> {
+                        _uiState.value = SettingsUiState.Loading
+                    }
+                    ConnectionState.DISCONNECTED -> {
+                        // Обновляем только если текущее состояние не является ошибкой
+                        if (_uiState.value !is SettingsUiState.Error && _uiState.value !is SettingsUiState.PermissionRequired) {
+                            _uiState.value = SettingsUiState.Success(
+                                isConnected = false,
+                                selectedDevice = printerMac.value
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fun selectPrinter(device: BluetoothDevice) {
         try {
             printerSettings.printerMacAddress = device.address
-            printerSettings.printerMacAddress = device.address
-            printerSettings.printerName = try {
-                device.name ?: "Неизвестный принтер"
-            } catch (e: SecurityException) {
-                "Неизвестный принтер"
-            }
+            // Проверяем разрешение для доступа к имени устройства Bluetooth
+            @SuppressLint("MissingPermission")
+            printerSettings.printerName = device.name ?: "Неизвестный принтер"
             printerName.value = printerSettings.printerName
             printerMac.value = printerSettings.printerMacAddress
             _uiState.value = SettingsUiState.Success(
@@ -69,49 +96,32 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun connectPrinter() {
-        viewModelScope.launch {
-            _uiState.value = SettingsUiState.Loading
-            val mac = printerMac.value
-            
-            if (mac.isEmpty()) {
-                _uiState.value = SettingsUiState.Error("Принтер не выбран. Сначала выберите принтер для подключения.")
-                return@launch
+        val requestPermissions = onRequestBluetoothPermissions
+
+        if (requestPermissions == null) {
+            // Fallback: пытаемся подключиться без проверки разрешений
+            connectPrinterInternal()
+            return
+        }
+
+        // Запрашиваем разрешения через Activity - исправленный вызов
+        requestPermissions(
+            { connectPrinterInternal() },
+            { deniedPermissions: List<String> ->
+                val explanation = generatePermissionExplanation(deniedPermissions)
+                _uiState.value = SettingsUiState.PermissionRequired(explanation)
             }
-            
-            // Проверяем формат MAC-адреса
-            val macRegex = "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$".toRegex()
-            if (!macRegex.matches(mac)) {
-                _uiState.value = SettingsUiState.Error("Неверный формат MAC-адреса: $mac")
-                return@launch
-            }
-            
-            timber.log.Timber.d("Attempting to connect to printer with MAC: $mac")
-            
-            try {
-                printerService.connect(mac).fold(
-                    onSuccess = {
-                        timber.log.Timber.i("Successfully connected to printer: $mac")
-                        _uiState.value = SettingsUiState.Success(
-                            isConnected = true,
-                            selectedDevice = mac
-                        )
-                    },
-                    onFailure = { error ->
-                        timber.log.Timber.e(error, "Failed to connect to printer: $mac")
-                        val errorMessage = when {
-                            error.message?.contains("timeout", ignoreCase = true) == true -> 
-                                "Превышено время ожидания подключения. Проверьте:\n• Принтер включен\n• Bluetooth активен\n• Принтер находится в зоне действия"
-                            error.message?.contains("failed", ignoreCase = true) == true -> 
-                                "Не удалось подключиться к принтеру. Проверьте:\n• MAC-адрес ($mac) правильный\n• Принтер не подключен к другому устройству"
-                            else -> 
-                                "Ошибка подключения: ${error.message}\n\nПроверьте:\n• Принтер включен и готов к работе\n• Bluetooth разрешения предоставлены"
-                        }
-                        _uiState.value = SettingsUiState.Error(errorMessage)
-                    }
-                )
-            } catch (e: Exception) {
-                timber.log.Timber.e(e, "Unexpected error during printer connection")
-                _uiState.value = SettingsUiState.Error("Неожиданная ошибка: ${e.message}")
+        )
+    }
+
+    private fun connectPrinterInternal() {
+        _uiState.value = SettingsUiState.Loading
+        printerMac.value.let { mac ->
+            if (mac.isNotEmpty()) {
+                printerService.connect(mac)
+                // Состояние будет обновлено через connectionState flow
+            } else {
+                _uiState.value = SettingsUiState.Error("Принтер не выбран")
             }
         }
     }
@@ -127,30 +137,54 @@ class SettingsViewModel @Inject constructor(
     fun selectPrinterManually(macAddress: String, printerName: String = "Термопринтер") {
         try {
             val cleanMac = macAddress.trim().uppercase()
-            
+
             // Проверяем формат MAC-адреса
             val macRegex = "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$".toRegex()
             if (!macRegex.matches(cleanMac)) {
                 _uiState.value = SettingsUiState.Error("Неверный формат MAC-адреса. Используйте формат: AA:BB:CC:DD:EE:FF")
                 return
             }
-            
+
             printerSettings.printerMacAddress = cleanMac
             printerSettings.printerName = printerName
+            this.printerName.value = printerSettings.printerName
             printerMac.value = printerSettings.printerMacAddress
-            
+
             _uiState.value = SettingsUiState.Success(
                 selectedDevice = cleanMac,
                 isConnected = connectionState.value == ConnectionState.CONNECTED
             )
-            
-            timber.log.Timber.d("Printer manually selected: $cleanMac")
+
         } catch (e: Exception) {
             _uiState.value = SettingsUiState.Error("Ошибка при выборе принтера: ${e.message}")
         }
     }
 
     fun printTestLabel() {
+        val requestPermissions = onRequestBluetoothPermissions
+        
+        if (requestPermissions == null) {
+            // Fallback: пытаемся печатать без проверки разрешений
+            printTestLabelInternal()
+            return
+        }
+
+        // Запрашиваем разрешения через Activity
+        requestPermissions(
+            { printTestLabelInternal() },
+            { deniedPermissions: List<String> ->
+                val explanation = generatePermissionExplanation(deniedPermissions)
+                _uiState.value = SettingsUiState.PermissionRequired(explanation)
+            }
+        )
+    }
+
+    private fun printTestLabelInternal() {
+        if (connectionState.value != ConnectionState.CONNECTED) {
+            _uiState.value = SettingsUiState.Error("Принтер не подключен. Сначала подключитесь к принтеру.")
+            return
+        }
+
         viewModelScope.launch {
             _uiState.value = SettingsUiState.Loading
             val testLabel = LabelData(
@@ -165,10 +199,9 @@ class SettingsViewModel @Inject constructor(
                 qrData = "test=2024/TEST=TEST-001=Тестовая деталь",
                 labelType = "Тест",
                 description = "Тестовая деталь",
-                location = "A1",
-                customFields = mapOf("тест" to "значение")
+                location = "A1"
             )
-            printerService.printLabel(testLabel).fold(
+            printerService.printLabel(testLabel, LabelType.STANDARD).fold(
                 onSuccess = {
                     _uiState.value = SettingsUiState.Success(
                         isConnected = true,
@@ -180,6 +213,45 @@ class SettingsViewModel @Inject constructor(
                         "Ошибка печати: ${error.message}"
                     )
                 }
+            )
+        }
+    }
+
+    /**
+     * Генерирует объяснение для отклоненных разрешений
+     */
+    private fun generatePermissionExplanation(deniedPermissions: List<String>): String {
+        return buildString {
+            appendLine("Для работы с принтером необходимы следующие разрешения:")
+            
+            deniedPermissions.forEach { permission ->
+                when (permission) {
+                    android.Manifest.permission.BLUETOOTH_SCAN -> {
+                        appendLine("• BLUETOOTH_SCAN - для поиска Bluetooth устройств")
+                    }
+                    android.Manifest.permission.BLUETOOTH_CONNECT -> {
+                        appendLine("• BLUETOOTH_CONNECT - для подключения к принтеру")
+                    }
+                    android.Manifest.permission.ACCESS_FINE_LOCATION -> {
+                        appendLine("• ACCESS_FINE_LOCATION - для поиска Bluetooth устройств (Android 6-11)")
+                    }
+                }
+            }
+            
+            appendLine()
+            appendLine("Пожалуйста, предоставьте разрешения в настройках приложения.")
+            appendLine("Разрешения используются только для работы с принтером.")
+        }
+    }
+
+    /**
+     * Очищает состояние запроса разрешений
+     */
+    fun clearPermissionState() {
+        if (_uiState.value is SettingsUiState.PermissionRequired) {
+            _uiState.value = SettingsUiState.Success(
+                isConnected = connectionState.value == ConnectionState.CONNECTED,
+                selectedDevice = printerMac.value
             )
         }
     }

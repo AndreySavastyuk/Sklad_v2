@@ -8,15 +8,24 @@ import com.example.myprinterapp.data.repo.PrintLogRepository
 import com.example.myprinterapp.data.db.PrintLogEntry
 import com.example.myprinterapp.domain.usecase.PrintLabelUseCase
 import com.example.myprinterapp.domain.usecase.GetPrintHistoryUseCase
+import com.example.myprinterapp.scanner.BleScannerManager
+import com.example.myprinterapp.scanner.BleConnectionState
+import com.example.myprinterapp.ui.validateAcceptanceQrMask
+import com.example.myprinterapp.ui.settings.SettingsViewModel
+import com.example.myprinterapp.ui.settings.SettingsUiState
+import com.example.myprinterapp.printer.ConnectionState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import javax.inject.Inject
+import timber.log.Timber
 
 // Состояния для совместимости
 sealed class AcceptUiState {
@@ -43,8 +52,14 @@ data class AcceptanceRecord(
 class AcceptViewModel @Inject constructor(
     private val printLabelUseCase: PrintLabelUseCase,
     private val getPrintHistoryUseCase: GetPrintHistoryUseCase,
-    private val printLogRepository: PrintLogRepository
+    private val printLogRepository: PrintLogRepository,
+    private val bleScannerManager: BleScannerManager,
+    private val printerService: com.example.myprinterapp.printer.PrinterService
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "AcceptViewModel"
+    }
 
     // Состояние полей ввода
     private val _scannedValue = MutableStateFlow<String?>(null)
@@ -60,10 +75,17 @@ class AcceptViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<AcceptUiState>(AcceptUiState.Idle)
     val uiState: StateFlow<AcceptUiState> = _uiState.asStateFlow()
 
-    // Моковые состояния для совместимости (будут заменены позже)
-    private val _printerConnectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
-    val printerConnectionState: StateFlow<ConnectionState> = _printerConnectionState.asStateFlow()
+    // Диалоги для ввода данных
+    private val _showQuantityDialog = MutableStateFlow(false)
+    val showQuantityDialog: StateFlow<Boolean> = _showQuantityDialog.asStateFlow()
 
+    private val _showCellCodeDialog = MutableStateFlow(false)
+    val showCellCodeDialog: StateFlow<Boolean> = _showCellCodeDialog.asStateFlow()
+
+    // Реальное состояние принтера из PrinterService
+    val printerConnectionState: StateFlow<ConnectionState> = printerService.connectionState
+
+    // Простое состояние сканера на основе BLE состояния
     private val _scannerConnectionState = MutableStateFlow(ScannerState.DISCONNECTED)
     val scannerConnectionState: StateFlow<ScannerState> = _scannerConnectionState.asStateFlow()
 
@@ -83,6 +105,26 @@ class AcceptViewModel @Inject constructor(
         // Загружаем последние операции при инициализации
         loadLastOperations()
 
+        // Наблюдение за состоянием BLE сканера
+        viewModelScope.launch {
+            bleScannerManager.connectionState.collect { bleState ->
+                _scannerConnectionState.value = when (bleState) {
+                    BleConnectionState.CONNECTED -> ScannerState.CONNECTED
+                    else -> ScannerState.DISCONNECTED
+                }
+            }
+        }
+
+        // ИСПРАВЛЕНИЕ: Добавляем подписку на результаты сканирования от BLE сканера
+        viewModelScope.launch {
+            bleScannerManager.scanResult.collect { scanResult ->
+                scanResult?.let { result ->
+                    Timber.d("$TAG: Получен результат сканирования от BLE: ${result.data}")
+                    onBarcodeDetected(result.data)
+                }
+            }
+        }
+
         // Тестируем UTF-8 QR генерацию (только в debug режиме)
         if (com.example.myprinterapp.BuildConfig.DEBUG) {
             testQrGeneration()
@@ -90,11 +132,53 @@ class AcceptViewModel @Inject constructor(
     }
 
     /**
-     * Обработка отсканированного штрих-кода
+     * Обработка сканированного штрих-кода/QR
      */
     fun onBarcodeDetected(code: String) {
-        _scannedValue.value = code
-        _uiState.value = AcceptUiState.Idle
+        Timber.d("$TAG: Получен QR/штрих-код: $code")
+        
+        // Проверяем маску для приемки
+        if (validateAcceptanceQrMask(code)) {
+            _scannedValue.value = code
+            // После успешного сканирования открываем диалог количества
+            _showQuantityDialog.value = true
+        } else {
+            _uiState.value = AcceptUiState.Error("QR-код не соответствует маске для приемки")
+        }
+        
+        // Обновление состояния сканера на основе BLE
+        bleScannerManager.clearScanResult()
+    }
+
+    /**
+     * Подтверждение количества и переход к вводу ячейки
+     */
+    fun onQuantityConfirmed(quantity: Int) {
+        _quantity.value = quantity.toString()
+        _showQuantityDialog.value = false
+        _showCellCodeDialog.value = true
+    }
+
+    /**
+     * Подтверждение ячейки и завершение ввода
+     */
+    fun onCellCodeConfirmed(cellCode: String) {
+        _cellCode.value = cellCode
+        _showCellCodeDialog.value = false
+    }
+
+    /**
+     * Отмена диалога количества
+     */
+    fun onQuantityDialogDismissed() {
+        _showQuantityDialog.value = false
+    }
+
+    /**
+     * Отмена диалога ячейки
+     */
+    fun onCellCodeDialogDismissed() {
+        _showCellCodeDialog.value = false
     }
 
     /**

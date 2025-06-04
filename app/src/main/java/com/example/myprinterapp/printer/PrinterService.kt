@@ -18,7 +18,6 @@ import java.time.OffsetDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
 
-
 /**
  * Сервис для работы с термопринтером.
  * Поддерживает печать этикеток различных форматов с QR-кодом и текстом.
@@ -31,6 +30,8 @@ class PrinterService @Inject constructor(
     companion object {
         // Таймаут подключения
         private const val CONNECTION_TIMEOUT_MS = 10000L
+        // MAC адрес принтера по умолчанию
+        const val DEFAULT_PRINTER_MAC = "10:23:81:5B:DA:29"
     }
 
     private val connectionManager = PrinterConnection(context)
@@ -48,21 +49,19 @@ class PrinterService @Inject constructor(
     }
 
     /**
-     * Подключение к принтеру по MAC-адресу с таймаутом
+     * Подключение к принтеру по MAC-адресу (асинхронное)
      */
-    suspend fun connect(macAddress: String): kotlin.Result<Unit> {
+    fun connect(macAddress: String): kotlin.Result<Unit> {
         return try {
             _connectionState.value = ConnectionState.CONNECTING
             Timber.d("Attempting to connect to printer with MAC: $macAddress")
 
-            val connected = withTimeout(CONNECTION_TIMEOUT_MS) {
-                connectionManager.connectAsync(macAddress)
-            }
-
-            if (connected) {
-                val deviceConnection = connectionManager.getConnection()
-                if (deviceConnection != null) {
-                    tsplPrinter = TSPLPrinter(deviceConnection)
+            // Используем асинхронное подключение с колбэками
+            connectionManager.connectAsync(
+                macAddress = macAddress,
+                onSuccess = {
+                    // Получаем принтер из connection manager
+                    tsplPrinter = connectionManager.getPrinter()
                     _connectionState.value = ConnectionState.CONNECTED
                     Timber.i("Successfully connected to printer: $macAddress")
 
@@ -72,22 +71,14 @@ class PrinterService @Inject constructor(
                     } catch (e: Exception) {
                         Timber.w(e, "Failed to play connection sound")
                     }
-
-                    kotlin.Result.success(Unit)
-                } else {
+                },
+                onFailure = { errorMessage ->
                     _connectionState.value = ConnectionState.DISCONNECTED
-                    Timber.e("Connection object is null after successful connect")
-                    kotlin.Result.failure(PrinterException("Ошибка инициализации принтера"))
+                    Timber.e("Connection failed: $errorMessage")
                 }
-            } else {
-                _connectionState.value = ConnectionState.DISCONNECTED
-                Timber.w("Failed to connect to printer: $macAddress")
-                kotlin.Result.failure(PrinterException("Не удалось подключиться к принтеру"))
-            }
-        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-            _connectionState.value = ConnectionState.DISCONNECTED
-            Timber.e("Connection timeout for $macAddress")
-            kotlin.Result.failure(PrinterException("Превышено время ожидания подключения"))
+            )
+
+            kotlin.Result.success(Unit)
         } catch (e: Exception) {
             _connectionState.value = ConnectionState.DISCONNECTED
             Timber.e(e, "Connection error to $macAddress")
@@ -100,7 +91,7 @@ class PrinterService @Inject constructor(
      */
     fun disconnect() {
         try {
-            connectionManager.close()
+            connectionManager.disconnect()
             tsplPrinter = null
             _connectionState.value = ConnectionState.DISCONNECTED
             Timber.d("Printer disconnected")
@@ -201,9 +192,9 @@ class PrinterService @Inject constructor(
             timestamp = OffsetDateTime.now(),
             operationType = data.labelType ?: "Общая",
             partNumber = data.partNumber,
-            partName = data.partName,
+            partName = data.description ?: data.partName,
             quantity = data.quantity,
-            location = data.cellCode,
+            location = data.location ?: data.cellCode,
             orderNumber = data.orderNumber,
             qrData = data.qrData,
             printerStatus = "SUCCESS"
@@ -214,6 +205,22 @@ class PrinterService @Inject constructor(
         } catch (e: Exception) {
             Timber.e(e, "Failed to log print operation")
         }
+    }
+
+    /**
+     * Тестирование соединения с принтером
+     */
+    fun testConnection(onSuccess: () -> Unit, onFailure: (String) -> Unit) {
+        connectionManager.testConnection(
+            onSuccess = {
+                Timber.d("Printer connection test successful")
+                onSuccess()
+            },
+            onFailure = { errorMessage ->
+                Timber.e("Printer connection test failed: $errorMessage")
+                onFailure(errorMessage)
+            }
+        )
     }
 }
 
