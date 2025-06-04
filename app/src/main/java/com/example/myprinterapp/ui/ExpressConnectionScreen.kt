@@ -70,8 +70,20 @@ fun ExpressConnectionScreen(
     }
 
     // Показываем QR диалог при ожидании сканирования
-    LaunchedEffect(scannerConnectionState, pairingQrCode) {
-        showQrDialog = scannerConnectionState == BleConnectionState.WAITING_FOR_SCAN && pairingQrCode != null
+    LaunchedEffect(scannerConnectionState) {
+        when (scannerConnectionState) {
+            BleConnectionState.WAITING_FOR_SCAN -> {
+                // Добавляем небольшую задержку для стабильности
+                delay(100)
+                showQrDialog = pairingQrCode != null
+            }
+            BleConnectionState.CONNECTED -> {
+                showQrDialog = false
+            }
+            else -> {
+                // Не закрываем диалог для других состояний
+            }
+        }
     }
 
     Scaffold(

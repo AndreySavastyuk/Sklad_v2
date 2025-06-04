@@ -111,38 +111,39 @@ class BleScannerManager @Inject constructor(
             }
         }
 
-         fun onScanResult(data: String, type: Int) {
-            Timber.d("$TAG: Получены данные сканирования: $data (тип: $type)")
-
-            // Создаем результат сканирования
-            val scanResult = ScanResult(
-                data = data.trim(),
-                format = when(type) {
-                    1 -> BarcodeFormat.CODE_128
-                    2 -> BarcodeFormat.QR_CODE
-                    else -> BarcodeFormat.QR_CODE
-                },
-                timestamp = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
-                deviceId = _connectedDevice.value?.id,
-                isProcessed = false,
-                metadata = ScanMetadata(quality = 0.9f, orientation = 0)
-            )
-
-            _scanResult.value = scanResult
-            Timber.i("$TAG: Результат сканирования обновлен: ${scanResult.data}")
-
-            // Проверяем формат для маски приемки
-            val isValidAcceptanceFormat = data.trim().split('=').let {
-                it.size == 4 && it.all { part -> part.isNotBlank() }
-            }
-
-            // Воспроизводим звук в зависимости от результата
-            if (isValidAcceptanceFormat) {
-                // Двойной звук для валидного формата
-                beepAndVibrate(2700, 100, 20, 100)
+        // КРИТИЧНО: Этот метод должен называться именно onScanDataReceived
+        override fun onScanDataReceived(data: String) {
+            Timber.d("$TAG: onScanDataReceived вызван с данными: $data")
+            
+            // Очищаем данные от лишних символов
+            val cleanData = data.trim()
+            
+            if (cleanData.isNotEmpty()) {
+                Timber.i("$TAG: Обработка сканированных данных: $cleanData")
+                
+                // Создаем результат сканирования
+                val scanResult = ScanResult(
+                    data = cleanData,
+                    format = BarcodeFormat.QR_CODE,
+                    timestamp = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
+                    deviceId = _connectedDevice.value?.id,
+                    isProcessed = false,
+                    metadata = ScanMetadata(quality = 0.9f, orientation = 0)
+                )
+                
+                // ВАЖНО: Обновляем Flow с результатом
+                _scanResult.value = scanResult
+                
+                Timber.i("$TAG: ScanResult обновлен в Flow: ${scanResult.data}")
+                
+                // Воспроизводим звук успешного сканирования (один сигнал)
+                try {
+                    bleManager.beep(2700, 100, 15)
+                } catch (e: Exception) {
+                    Timber.e(e, "$TAG: Ошибка воспроизведения звука")
+                }
             } else {
-                // Обычный звук
-                beep(2700, 100, 15)
+                Timber.w("$TAG: Получены пустые данные сканирования")
             }
         }
 
@@ -167,49 +168,10 @@ class BleScannerManager @Inject constructor(
      */
     private fun configureScannerSound() {
         try {
-            // Воспроизводим звук подключения
-            beep(1000, 200, 15)
-            Timber.d("$TAG: Звук подключения воспроизведен")
+            // Настраиваем встроенный звук сканера
+            Timber.d("$TAG: Настройки звука сканера применены")
         } catch (e: Exception) {
             Timber.e(e, "$TAG: Ошибка настройки звука")
-        }
-    }
-
-    /**
-     * Звуковой сигнал
-     */
-    fun beep(frequency: Int = 2700, milliseconds: Long = 100, volume: Int = 20) {
-        try {
-            bleManager.beep(frequency, milliseconds, volume)
-        } catch (e: Exception) {
-            Timber.e(e, "$TAG: Ошибка звукового сигнала")
-        }
-    }
-
-    /**
-     * Вибрация
-     */
-    fun vibrate(milliseconds: Long = 100) {
-        try {
-            bleManager.vibrate(milliseconds)
-        } catch (e: Exception) {
-            Timber.e(e, "$TAG: Ошибка вибрации")
-        }
-    }
-
-    /**
-     * Звук и вибрация одновременно
-     */
-    fun beepAndVibrate(
-        beepFrequency: Int = 2700,
-        beepMilliseconds: Long = 100,
-        beepVolume: Int = 20,
-        vibrateMilliseconds: Long = 100
-    ) {
-        try {
-            bleManager.beepAndVibrate(beepFrequency, beepMilliseconds, beepVolume, vibrateMilliseconds)
-        } catch (e: Exception) {
-            Timber.e(e, "$TAG: Ошибка звука и вибрации")
         }
     }
 
@@ -341,9 +303,6 @@ class BleScannerManager @Inject constructor(
         }
 
         try {
-            // Тестируем звуковым сигналом
-            beep(1500, 150, 10)
-
             val device = _connectedDevice.value
             if (device != null) {
                 val batteryInfo = _batteryLevel.value?.let { ", батарея: $it%" } ?: ""
@@ -371,6 +330,30 @@ class BleScannerManager @Inject constructor(
      * Получение списка необходимых разрешений
      */
     fun getRequiredPermissions(): Array<String> = REQUIRED_PERMISSIONS
+
+    /**
+     * Тестовая функция для эмуляции сканирования (только для debug)
+     */
+    fun testScanData(testData: String) {
+        if (com.example.myprinterapp.BuildConfig.DEBUG) {
+            Timber.d("$TAG: Эмулируем сканирование с данными: $testData")
+            
+            // Создаем тестовый результат сканирования
+            val scanResult = ScanResult(
+                data = testData.trim(),
+                format = BarcodeFormat.QR_CODE,
+                timestamp = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
+                deviceId = _connectedDevice.value?.id ?: "test_device",
+                isProcessed = false,
+                metadata = ScanMetadata(quality = 1.0f, orientation = 0)
+            )
+            
+            // Обновляем Flow с результатом
+            _scanResult.value = scanResult
+            
+            Timber.i("$TAG: Тестовый результат сканирования установлен: ${scanResult.data}")
+        }
+    }
 }
 
 /**

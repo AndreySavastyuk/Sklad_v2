@@ -45,6 +45,10 @@ class BleScannerSettingsViewModel @Inject constructor(
     fun testConnection(onResult: (Boolean, String) -> Unit) {
         bleScannerManager.testConnection(onResult)
     }
+
+    fun testScanData(data: String) {
+        bleScannerManager.testScanData(data)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -186,11 +190,7 @@ fun BleScannerSettingsScreen(
                                 Button(
                                     onClick = {
                                         viewModel.connectScanner { success, message ->
-                                            showTestResult = if (success) {
-                                                "Подключение установлено"
-                                            } else {
-                                                message ?: "Ошибка подключения"
-                                            }
+                                            showTestResult = message ?: (if (success) "Подключение инициировано" else "Ошибка подключения")
                                             isTestError = !success
                                         }
                                     },
@@ -228,6 +228,22 @@ fun BleScannerSettingsScreen(
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 2.dp
                                 )
+                            }
+                        }
+                        
+                        // Тестовая кнопка (удалить после проверки)
+                        if (com.example.myprinterapp.BuildConfig.DEBUG) {
+                            Button(
+                                onClick = {
+                                    // Прямая эмуляция сканирования через ViewModel
+                                    viewModel.testScanData("TEST=2024/001=PART-123=Test Part")
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiary
+                                )
+                            ) {
+                                Text("ТЕСТ: Эмулировать сканирование")
                             }
                         }
                     }

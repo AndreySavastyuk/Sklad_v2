@@ -112,15 +112,33 @@ class AcceptViewModel @Inject constructor(
                     BleConnectionState.CONNECTED -> ScannerState.CONNECTED
                     else -> ScannerState.DISCONNECTED
                 }
+                Timber.d("$TAG: Состояние сканера изменено на: ${_scannerConnectionState.value}")
             }
         }
 
-        // ИСПРАВЛЕНИЕ: Добавляем подписку на результаты сканирования от BLE сканера
+        // КРИТИЧНО: Подписка на результаты сканирования
         viewModelScope.launch {
             bleScannerManager.scanResult.collect { scanResult ->
-                scanResult?.let { result ->
-                    Timber.d("$TAG: Получен результат сканирования от BLE: ${result.data}")
-                    onBarcodeDetected(result.data)
+                if (scanResult != null) {
+                    Timber.d("$TAG: Получен результат от BLE сканера: ${scanResult.data}")
+                    
+                    // Проверяем маску и обрабатываем
+                    if (validateAcceptanceQrMask(scanResult.data)) {
+                        _scannedValue.value = scanResult.data
+                        Timber.i("$TAG: QR-код принят и установлен: ${scanResult.data}")
+                        
+                        // Автоматически открываем диалог количества
+                        _showQuantityDialog.value = true
+                        
+                        // Очищаем результат в сканере
+                        bleScannerManager.clearScanResult()
+                    } else {
+                        Timber.w("$TAG: QR-код не прошел валидацию маски: ${scanResult.data}")
+                        _uiState.value = AcceptUiState.Error("QR-код не соответствует формату приемки")
+                        
+                        // Все равно очищаем результат
+                        bleScannerManager.clearScanResult()
+                    }
                 }
             }
         }

@@ -295,6 +295,124 @@ fun SettingsScreen(
                 }
             }
             
+            // Дополнительные настройки
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Дополнительные параметры",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    
+                    // Автопечать после сканирования
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Автопечать этикеток")
+                            Text(
+                                "Печатать сразу после заполнения полей",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = false, // TODO: добавить в ViewModel
+                            onCheckedChange = { /* TODO: viewModel.setAutoPrint(it) */ }
+                        )
+                    }
+                    
+                    Divider()
+                    
+                    // Звуковые сигналы
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Звуковые сигналы")
+                            Text(
+                                "Звук при успешных операциях",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = true, // TODO: добавить в ViewModel
+                            onCheckedChange = { /* TODO: viewModel.setSoundEnabled(it) */ }
+                        )
+                    }
+                    
+                    Divider()
+                    
+                    // Размер шрифта этикеток
+                    Column {
+                        Text("Размер шрифта этикеток")
+                        Slider(
+                            value = 12f, // TODO: добавить в ViewModel
+                            onValueChange = { /* TODO: viewModel.setLabelFontSize(it) */ },
+                            valueRange = 8f..24f,
+                            steps = 7,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "Текущий размер: 12", // TODO: добавить в ViewModel
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
+                    }
+                }
+            }
+
+            // Информация о приложении
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null)
+                        Text(
+                            text = "О приложении",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    
+                    InfoRow("Версия", "1.0.0") // TODO: BuildConfig.VERSION_NAME
+                    InfoRow("Сборка", "1") // TODO: BuildConfig.VERSION_CODE.toString()
+                    InfoRow("База данных", "SQLite v3.0") // TODO: database.version
+                    
+                    Button(
+                        onClick = { /* TODO: viewModel.exportDatabase() */ },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Экспорт базы данных")
+                    }
+                }
+            }
+            
             // Отображение ошибок
             val currentState = uiState
             if (currentState is SettingsUiState.Error) {
@@ -323,5 +441,24 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
     }
 } 

@@ -1,5 +1,6 @@
 package com.example.myprinterapp.ui
 
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -65,10 +66,10 @@ fun validateAcceptanceQrMask(qrData: String): Boolean {
 
 fun parseFixedQrValue(scannedValue: String?): List<ParsedQrData> {
     if (scannedValue.isNullOrBlank()) return emptyList()
-    
+
     // Проверяем маску для приемки
     if (!validateAcceptanceQrMask(scannedValue)) return emptyList()
-    
+
     val parts = scannedValue.split('=')
     if (parts.size != 4) return emptyList()
 
@@ -117,6 +118,13 @@ fun AcceptScreen(
     onQuantityDialogDismissed: () -> Unit = {},
     onCellCodeDialogDismissed: () -> Unit = {}
 ) {
+    // ОТЛАДКА: Логируем текущее значение
+    LaunchedEffect(scannedValue) {
+        if (scannedValue != null) {
+            Log.d("AcceptScreen", "Отображаем сканированное значение: $scannedValue")
+        }
+    }
+
     val focusManager = LocalFocusManager.current
     val parsedData = remember(scannedValue) { parseFixedQrValue(scannedValue) }
     val scrollState = rememberScrollState()
@@ -144,7 +152,7 @@ fun AcceptScreen(
             onConfirm = onQuantityConfirmed
         )
     }
-    
+
     if (showCellCodeDialog) {
         CellCodeInputDialog(
             onDismiss = onCellCodeDialogDismissed,
@@ -154,7 +162,7 @@ fun AcceptScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
+            TopAppBar(
                 title = { Text("Приемка продукции", fontSize = 26.sp, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
@@ -162,25 +170,28 @@ fun AcceptScreen(
                     }
                 },
                 actions = {
-                    // Индикатор состояния принтера (исправленный)
+                    // Состояние принтера
                     PrinterStatusIndicator(
                         connectionState = printerConnectionState,
                         onClick = onNavigateToSettings
                     )
-                    
+
                     // Кнопка журнала
                     IconButton(
                         onClick = onNavigateToJournal,
                         modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
-                            Icons.Filled.History,
-                            "Журнал операций",
+                            Icons.Default.Assignment,
+                            contentDescription = "Журнал операций",
                             modifier = Modifier.size(32.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                )
             )
         }
     ) { paddingValues ->
@@ -198,23 +209,21 @@ fun AcceptScreen(
 
                 // Кнопки для сканирования (адаптированные для планшета)
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(20.dp), 
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Кнопка настройки BLE сканера (изменено согласно пункту 9)
+                    // Кнопка настройки BLE сканера 
                     Button(
-                        onClick = { 
+                        onClick = {
                             onNavigateToBleScannerSettings?.invoke() ?: onNavigateToSettings()
                         },
                         modifier = Modifier.weight(1f).height(120.dp),
                         shape = MaterialTheme.shapes.medium,
-                        contentPadding = PaddingValues(vertical = 16.dp),
                         border = buttonBorder,
-                        enabled = uiState !is AcceptUiState.Printing,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (scannerConnectionState == ScannerState.CONNECTED)
-                                MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
-                            else MaterialTheme.colorScheme.secondary
+                                Color(0xFF4CAF50) // Зеленый при подключении
+                            else Color(0xFF9C27B0) // Фиолетовый при отключении
                         )
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -223,7 +232,8 @@ fun AcceptScreen(
                                     Icons.Filled.QrCodeScanner
                                 else Icons.Filled.Settings,
                                 "Настройка BLE сканера",
-                                modifier = Modifier.size(48.dp)
+                                modifier = Modifier.size(48.dp),
+                                tint = Color.White
                             )
                             Spacer(Modifier.height(12.dp))
                             Text(
@@ -232,28 +242,36 @@ fun AcceptScreen(
                                 else "Настроить сканер",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Medium,
-                                textAlign = TextAlign.Center
+                                textAlign = TextAlign.Center,
+                                color = Color.White
                             )
                         }
                     }
 
-                    // Камера
+                    // Камера (желтая кнопка)
                     Button(
                         onClick = onScanWithCamera,
                         modifier = Modifier.weight(1f).height(120.dp),
                         shape = MaterialTheme.shapes.medium,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = WarmYellow.darker(0.9f),
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        ),
-                        contentPadding = PaddingValues(vertical = 16.dp),
                         border = buttonBorder,
-                        enabled = uiState !is AcceptUiState.Printing
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = WarmYellow // Желтый цвет для камеры
+                        )
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Filled.CameraAlt, "Камера", modifier = Modifier.size(48.dp))
+                            Icon(
+                                Icons.Filled.CameraAlt, 
+                                "Камера", 
+                                modifier = Modifier.size(48.dp),
+                                tint = Color.Black
+                            )
                             Spacer(Modifier.height(12.dp))
-                            Text("Камера планшета", fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                "Камера планшета", 
+                                fontSize = 18.sp, 
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Black
+                            )
                         }
                     }
                 }
@@ -267,7 +285,7 @@ fun AcceptScreen(
                     enabled = false,
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = LocalTextStyle.current.copy(
-                        fontSize = 18.sp, 
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     ),
@@ -425,7 +443,7 @@ fun AcceptScreen(
                         }
                     }
                 }
-                
+
                 // Добавляем отступ внизу для прокрутки
                 Spacer(modifier = Modifier.height(16.dp))
             }

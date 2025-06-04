@@ -161,6 +161,11 @@ class MainActivity : ComponentActivity() {
                         val showQuantityDialog by acceptVm.showQuantityDialog.collectAsState()
                         val showCellCodeDialog by acceptVm.showCellCodeDialog.collectAsState()
 
+                        // Добавь отладочный лог
+                        LaunchedEffect(scanned) {
+                            android.util.Log.d("MainActivity", "Scanned value changed to: $scanned")
+                        }
+
                         AcceptScreen(
                             scannedValue = scanned,
                             quantity = qty,
