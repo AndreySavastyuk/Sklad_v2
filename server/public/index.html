@@ -26,6 +26,11 @@
         </div>
       </form>
       <div id="createResult" class="mt-2"></div>
+      <div class="mt-3">
+        <div id="dropArea" class="border border-primary rounded p-3 text-center">
+          Перетащите Excel файл сюда
+        </div>
+      </div>
     </div>
   </div>
   <div class="card">
@@ -49,6 +54,43 @@
           <tbody></tbody>
         </table>
       </div>
+    </div>
+  </div>
+  <div id="itemsSection" class="mt-4" style="display:none;">
+    <h5 id="orderInfo" class="mb-2"></h5>
+    <div class="table-responsive">
+      <table class="table table-sm" id="itemsTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="modal fade" id="uploadModal" tabindex="-1">
+    <div class="modal-dialog">
+      <form class="modal-content" id="uploadForm">
+        <div class="modal-header">
+          <h5 class="modal-title">Новая заявка</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="orderNumber" class="form-label">Заказ</label>
+            <input type="text" class="form-control" id="orderNumber" required>
+          </div>
+          <div class="mb-3">
+            <label for="priority" class="form-label">Приоритет</label>
+            <select id="priority" class="form-select">
+              <option value="normal">Обычный</option>
+              <option value="urgent">Срочный</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-primary">OK</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
@@ -119,6 +161,49 @@ document.getElementById('createForm').addEventListener('submit', async (e)=>{
         document.getElementById('createResult').textContent=err.message;
     }
 });
+const dropArea = document.getElementById('dropArea');
+const uploadModalElem = document.getElementById('uploadModal');
+const uploadModal = new bootstrap.Modal(uploadModalElem);
+let droppedFile = null;
+['dragover','dragenter'].forEach(evt => dropArea.addEventListener(evt, e=>{e.preventDefault(); dropArea.classList.add('bg-light');}));
+['dragleave','drop'].forEach(evt => dropArea.addEventListener(evt, e=>{e.preventDefault(); dropArea.classList.remove('bg-light');}));
+dropArea.addEventListener('drop', e=>{
+    const file = e.dataTransfer.files[0];
+    if(file){
+        droppedFile = file;
+        uploadModal.show();
+    }
+});
+document.getElementById('uploadForm').addEventListener('submit', async e=>{
+    e.preventDefault();
+    if(!droppedFile) return;
+    const order = document.getElementById('orderNumber').value;
+    const priority = document.getElementById('priority').value;
+    const fd = new FormData();
+    fd.append('file', droppedFile);
+    const res = await fetch('/tasks/parse', {method:'POST', body: fd});
+    if(res.ok){
+        const data = await res.json();
+        renderItemsTable(order, priority, data.headers, data.items);
+        uploadModal.hide();
+        droppedFile = null;
+    }else{
+        alert('Ошибка при парсинге файла');
+    }
+});
+function renderItemsTable(order, priority, headers, items){
+    document.getElementById('orderInfo').textContent = `Заказ: ${order} / Приоритет: ${priority}`;
+    const thead = document.querySelector('#itemsTable thead');
+    const tbody = document.querySelector('#itemsTable tbody');
+    thead.innerHTML = '<tr>' + headers.map(h=>`<th>${h}</th>`).join('') + '</tr>';
+    tbody.innerHTML = '';
+    items.forEach((it,i)=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = headers.map(h=>`<td><input type="text" class="form-control form-control-sm" value="${it[h] || ''}"></td>`).join('');
+        tbody.appendChild(tr);
+    });
+    document.getElementById('itemsSection').style.display = 'block';
+}
 loadTasks();
 </script>
 </body>

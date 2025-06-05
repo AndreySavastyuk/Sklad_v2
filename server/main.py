@@ -134,3 +134,16 @@ def upload_excel(file: UploadFile = File(...)):
     conn.commit()
     conn.close()
     return {"created": created_ids}
+
+
+@app.post("/tasks/parse")
+def parse_excel(file: UploadFile = File(...)):
+    """Parse Excel file and return raw rows for client-side editing."""
+    wb = load_workbook(file.file)
+    sheet = wb.active
+    headers = [cell.value or f"col{i+1}" for i, cell in enumerate(sheet[1])]
+    items = []
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        item = {headers[i]: (str(val) if val is not None else "") for i, val in enumerate(row)}
+        items.append(item)
+    return {"headers": headers, "items": items}
