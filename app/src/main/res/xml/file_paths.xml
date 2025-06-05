@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Кэш директория для временных файлов -->
+    <cache-path name="cache" path="." />
+    
+    <!-- Внутренние файлы приложения -->
+    <files-path name="files" path="." />
+    
+    <!-- Папка для отчётов -->
+    <files-path name="reports" path="reports/" />
+    
+    <!-- Папка для экспорта -->
+    <files-path name="exports" path="exports/" />
+    
+    <!-- Внешнее хранилище для больших файлов -->
+    <external-files-path name="external_files" path="." />
+    
+    <!-- Папка Downloads для экспорта -->
+    <external-path name="external_downloads" path="Download/" />
+</paths> 

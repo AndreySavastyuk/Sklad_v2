@@ -30,7 +30,7 @@ private fun Color.darker(factor: Float = 0.8f): Color {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StartScreen(
-    onReceiveClick: () -> Unit,
+    onAcceptClick: () -> Unit,
     onPickClick: () -> Unit,
     onJournalClick: () -> Unit,
     onSettingsClick: () -> Unit,
@@ -136,7 +136,7 @@ fun StartScreen(
 
             StartScreenButton(
                 text = "Приемка продукции",
-                onClick = onReceiveClick,
+                onClick = onAcceptClick,
                 modifier = buttonModifier,
                 border = buttonBorder,
                 icon = Icons.Filled.Inventory
@@ -178,6 +178,8 @@ fun StartScreen(
                     icon = Icons.Filled.Settings
                 )
             }
+
+            Spacer(modifier = Modifier.height(20.dp))
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -268,7 +270,7 @@ private fun StartScreenButton(
 fun StartScreenPreview() {
     MaterialTheme {
         StartScreen(
-            onReceiveClick = {},
+            onAcceptClick = {},
             onPickClick = {},
             onJournalClick = {},
             onSettingsClick = {}

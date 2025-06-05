@@ -88,21 +88,11 @@ class MainActivity : ComponentActivity() {
                     /* --- стартовое меню --- */
                     composable("start") {
                         StartScreen(
-                            onReceiveClick = {
-                                navController.navigate("accept")       // к приёмке
-                            },
-                            onPickClick = {
-                                navController.navigate("pick_tasks")   // список заданий
-                            },
-                            onJournalClick = {
-                                navController.navigate("log")          // журнал операций
-                            },
-                            onSettingsClick = {
-                                navController.navigate("settings")     // настройки
-                            },
-                            onExpressConnectionClick = {
-                                navController.navigate("express_connection") // экспресс-подключение
-                            }
+                            onAcceptClick = { navController.navigate("accept") },
+                            onPickClick = { navController.navigate("pick_tasks") },
+                            onJournalClick = { navController.navigate("log") },
+                            onSettingsClick = { navController.navigate("settings") },
+                            onExpressConnectionClick = { navController.navigate("express_connection") }
                         )
                     }
 
@@ -323,6 +313,8 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
+
+
                 }
             }
         }

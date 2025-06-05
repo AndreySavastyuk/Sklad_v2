@@ -6,7 +6,9 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
 @Database(
-    entities = [PrintLogEntry::class /*,+ другие*/],
+    entities = [
+        PrintLogEntry::class
+    ],
     version = 1,
     exportSchema = false
 )

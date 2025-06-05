@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏭 Production Task System v2.0 - Тестирование API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #2563eb;
+            text-align: center;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        .button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .button:hover {
+            background: #2563eb;
+        }
+        .button.success {
+            background: #10b981;
+        }
+        .button.danger {
+            background: #ef4444;
+        }
+        .result {
+            background: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 60px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .status.success {
+            background: #dcfce7;
+            border: 1px solid #16a34a;
+            color: #166534;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stats-card {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            text-align: center;
+        }
+        .stats-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1e40af;
+        }
+        .stats-label {
+            font-size: 14px;
+            color: #64748b;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏭 Production Task System v2.0 - Тестирование API</h1>
+        
+        <div class="status success">
+            <strong>✅ Система готова к тестированию!</strong><br>
+            Сервер запущен на <a href="http://localhost:3000" target="_blank">http://localhost:3000</a>
+        </div>
+
+        <!-- Статус системы -->
+        <div class="section">
+            <h2>📊 Статус системы</h2>
+            <button class="button" onclick="checkStatus()">Проверить статус</button>
+            <button class="button" onclick="getStats()">Получить статистику</button>
+            <div id="statusResult" class="result" style="display:none;"></div>
+            
+            <div id="statsCards" class="stats-grid" style="display:none;">
+                <div class="stats-card">
+                    <div id="totalTasks" class="stats-value">0</div>
+                    <div class="stats-label">Всего заданий</div>
+                </div>
+                <div class="stats-card">
+                    <div id="totalItems" class="stats-value">0</div>
+                    <div class="stats-label">Всего позиций</div>
+                </div>
+                <div class="stats-card">
+                    <div id="systemStatus" class="stats-value">-</div>
+                    <div class="stats-label">Статус БД</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Создание задания -->
+        <div class="section">
+            <h2>➕ Создание задания</h2>
+            <div class="form-group">
+                <label>Номер задания:</label>
+                <input type="text" id="taskNumber" placeholder="ПЗ-2024-001" value="TEST-001">
+            </div>
+            <div class="form-group">
+                <label>Комментарий:</label>
+                <textarea id="taskComment" placeholder="Описание задания">Тестовое задание через веб-интерфейс</textarea>
+            </div>
+            <div class="form-group">
+                <label>Количество сборок:</label>
+                <input type="number" id="assemblyCount" value="1" min="1">
+            </div>
+            <div class="form-group">
+                <label>Создал:</label>
+                <input type="text" id="createdBy" value="Веб-тестировщик">
+            </div>
+            <button class="button success" onclick="createTask()">Создать задание</button>
+            <div id="createResult" class="result" style="display:none;"></div>
+        </div>
+
+        <!-- Список заданий -->
+        <div class="section">
+            <h2>📋 Список заданий</h2>
+            <button class="button" onclick="getTasks()">Получить все задания</button>
+            <button class="button" onclick="getTasks('created')">Созданные</button>
+            <button class="button" onclick="getTasks('in_progress')">В работе</button>
+            <button class="button" onclick="getTasks('completed')">Завершённые</button>
+            <div id="tasksResult" class="result" style="display:none;"></div>
+        </div>
+
+        <!-- Управление заданием -->
+        <div class="section">
+            <h2>⚙️ Управление заданием</h2>
+            <div class="form-group">
+                <label>ID задания:</label>
+                <input type="number" id="taskId" placeholder="1" value="1">
+            </div>
+            <button class="button" onclick="getTaskDetails()">Детали задания</button>
+            <button class="button" onclick="updateTaskStatus('sent')">→ Отправлено</button>
+            <button class="button" onclick="updateTaskStatus('in_progress')">⚡ В работе</button>
+            <button class="button success" onclick="updateTaskStatus('completed')">✅ Завершено</button>
+            <div id="taskDetailsResult" class="result" style="display:none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000/api';
+        
+        async function apiCall(endpoint, options = {}) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                const data = await response.json();
+                return { success: response.ok, data, status: response.status };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+
+        async function checkStatus() {
+            const result = await apiCall('/status');
+            const element = document.getElementById('statusResult');
+            element.style.display = 'block';
+            
+            if (result.success) {
+                element.textContent = `✅ Система работает!\n${JSON.stringify(result.data, null, 2)}`;
+                element.style.background = '#dcfce7';
+                element.style.border = '1px solid #16a34a';
+                
+                // Обновляем статус в карточке
+                document.getElementById('systemStatus').textContent = result.data.status;
+            } else {
+                element.textContent = `❌ Ошибка: ${result.error || result.data?.error}`;
+                element.style.background = '#fef2f2';
+                element.style.border = '1px solid #dc2626';
+            }
+        }
+
+        async function getStats() {
+            const result = await apiCall('/stats');
+            const element = document.getElementById('statusResult');
+            element.style.display = 'block';
+            
+            if (result.success) {
+                element.textContent = `📊 Статистика:\n${JSON.stringify(result.data, null, 2)}`;
+                element.style.background = '#dcfce7';
+                element.style.border = '1px solid #16a34a';
+                
+                // Обновляем карточки статистики
+                document.getElementById('totalTasks').textContent = result.data.totalTasks;
+                document.getElementById('totalItems').textContent = result.data.totalItems;
+                document.getElementById('statsCards').style.display = 'grid';
+            } else {
+                element.textContent = `❌ Ошибка получения статистики: ${result.error}`;
+                element.style.background = '#fef2f2';
+                element.style.border = '1px solid #dc2626';
+            }
+        }
+
+        async function createTask() {
+            const taskData = {
+                task_number: document.getElementById('taskNumber').value,
+                comment: document.getElementById('taskComment').value,
+                assembly_count: parseInt(document.getElementById('assemblyCount').value),
+                created_by: document.getElementById('createdBy').value
+            };
+
+            const result = await apiCall('/tasks', {
+                method: 'POST',
+                body: JSON.stringify(taskData)
+            });
+
+            const element = document.getElementById('createResult');
+            element.style.display = 'block';
+            
+            if (result.success) {
+                element.textContent = `✅ Задание создано!\n${JSON.stringify(result.data, null, 2)}`;
+                element.style.background = '#dcfce7';
+                element.style.border = '1px solid #16a34a';
+                
+                // Обновляем статистику
+                getStats();
+            } else {
+                element.textContent = `❌ Ошибка создания: ${result.error || result.data?.error}`;
+                element.style.background = '#fef2f2';
+                element.style.border = '1px solid #dc2626';
+            }
+        }
+
+        async function getTasks(status = null) {
+            const endpoint = status ? `/tasks?status=${status}` : '/tasks';
+            const result = await apiCall(endpoint);
+            
+            const element = document.getElementById('tasksResult');
+            element.style.display = 'block';
+            
+            if (result.success) {
+                const tasks = result.data.tasks || [];
+                let display = `📋 Найдено заданий: ${tasks.length}\n\n`;
+                
+                if (tasks.length > 0) {
+                    tasks.forEach(task => {
+                        display += `ID: ${task.id} | ${task.task_number}\n`;
+                        display += `Статус: ${task.status} | Создан: ${task.created_at}\n`;
+                        display += `Создал: ${task.created_by}\n`;
+                        if (task.comment) display += `Комментарий: ${task.comment}\n`;
+                        display += '---\n';
+                    });
+                } else {
+                    display += 'Заданий не найдено.';
+                }
+                
+                element.textContent = display;
+                element.style.background = '#dcfce7';
+                element.style.border = '1px solid #16a34a';
+            } else {
+                element.textContent = `❌ Ошибка: ${result.error || result.data?.error}`;
+                element.style.background = '#fef2f2';
+                element.style.border = '1px solid #dc2626';
+            }
+        }
+
+        async function getTaskDetails() {
+            const taskId = document.getElementById('taskId').value;
+            const result = await apiCall(`/tasks/${taskId}`);
+            
+            const element = document.getElementById('taskDetailsResult');
+            element.style.display = 'block';
+            
+            if (result.success) {
+                element.textContent = `📋 Детали задания ${taskId}:\n${JSON.stringify(result.data, null, 2)}`;
+                element.style.background = '#dcfce7';
+                element.style.border = '1px solid #16a34a';
+            } else {
+                element.textContent = `❌ Ошибка: ${result.error || result.data?.error}`;
+                element.style.background = '#fef2f2';
+                element.style.border = '1px solid #dc2626';
+            }
+        }
+
+        async function updateTaskStatus(newStatus) {
+            const taskId = document.getElementById('taskId').value;
+            const result = await apiCall(`/tasks/${taskId}/status`, {
+                method: 'PUT',
+                body: JSON.stringify({ status: newStatus })
+            });
+            
+            const element = document.getElementById('taskDetailsResult');
+            element.style.display = 'block';
+            
+            if (result.success) {
+                element.textContent = `✅ Статус обновлён на "${newStatus}"\n${JSON.stringify(result.data, null, 2)}`;
+                element.style.background = '#dcfce7';
+                element.style.border = '1px solid #16a34a';
+                
+                // Обновляем статистику
+                getStats();
+            } else {
+                element.textContent = `❌ Ошибка обновления: ${result.error || result.data?.error}`;
+                element.style.background = '#fef2f2';
+                element.style.border = '1px solid #dc2626';
+            }
+        }
+
+        // Автоматическая проверка при загрузке
+        window.onload = function() {
+            checkStatus();
+            getStats();
+        };
+    </script>
+</body>
+</html> 
