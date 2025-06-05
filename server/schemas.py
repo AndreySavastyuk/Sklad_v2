@@ -20,3 +20,9 @@ class Task(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class TaskUpdate(BaseModel):
+    comment: Optional[str] = None
+    assembly_count: Optional[int] = None
+    status: Optional[str] = None

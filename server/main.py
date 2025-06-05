@@ -3,11 +3,10 @@ from fastapi.responses import HTMLResponse
 from typing import List, Optional
 import sqlite3
 from pathlib import Path
-import csv
 from openpyxl import load_workbook
 
 from .database import get_connection, init_db
-from .schemas import Task, TaskCreate
+from .schemas import Task, TaskCreate, TaskUpdate
 
 app = FastAPI(title="Warehouse Task Server")
 
@@ -31,12 +30,17 @@ def index():
 def create_task(task: TaskCreate):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        """INSERT INTO tasks (task_number, comment, assembly_count, created_by)
+    try:
+        cursor.execute(
+            """INSERT INTO tasks (task_number, comment, assembly_count, created_by)
                VALUES (?, ?, ?, ?)""",
-        (task.task_number, task.comment, task.assembly_count, task.created_by),
-    )
-    conn.commit()
+            (task.task_number, task.comment, task.assembly_count, task.created_by),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(status_code=409, detail="Task number already exists")
+
     task_id = cursor.lastrowid
     row = cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
@@ -61,6 +65,35 @@ def list_tasks(status: Optional[str] = None):
 def get_task(task_id: int):
     conn = get_connection()
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    conn.close()
+    if row:
+        return Task(**row)
+    raise HTTPException(status_code=404, detail="Task not found")
+
+
+@app.put("/tasks/{task_id}", response_model=Task)
+def update_task(task_id: int, task: TaskUpdate):
+    conn = get_connection()
+    cursor = conn.cursor()
+    fields = []
+    values = []
+    if task.comment is not None:
+        fields.append("comment = ?")
+        values.append(task.comment)
+    if task.assembly_count is not None:
+        fields.append("assembly_count = ?")
+        values.append(task.assembly_count)
+    if task.status is not None:
+        fields.append("status = ?")
+        values.append(task.status)
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    fields.append("updated_at = CURRENT_TIMESTAMP")
+    sql = f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?"
+    values.append(task_id)
+    cursor.execute(sql, values)
+    conn.commit()
+    row = cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
     if row:
         return Task(**row)

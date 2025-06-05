@@ -1,35 +1,125 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>Warehouse Task System</title>
+  <meta charset="UTF-8">
+  <title>Warehouse Task System</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-<body>
-<h1>Warehouse Task System</h1>
-<form id="taskForm">
-    <label>Номер задания: <input type="text" id="taskNumber" required></label><br>
-    <label>Комментарий: <input type="text" id="comment"></label><br>
-    <label>Количество сборок: <input type="number" id="assembly" value="1"></label><br>
-    <button type="submit">Создать</button>
-</form>
-<pre id="result"></pre>
+<body class="p-4">
+<div class="container">
+  <h1 class="mb-4">Warehouse Task System</h1>
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title">Создать задание</h5>
+      <form id="createForm" class="row g-2">
+        <div class="col-md-3">
+          <input type="text" class="form-control" id="taskNumber" placeholder="Номер задания" required>
+        </div>
+        <div class="col-md-4">
+          <input type="text" class="form-control" id="comment" placeholder="Комментарий">
+        </div>
+        <div class="col-md-2">
+          <input type="number" class="form-control" id="assembly" value="1" min="1">
+        </div>
+        <div class="col-md-2">
+          <button type="submit" class="btn btn-primary w-100">Создать</button>
+        </div>
+      </form>
+      <div id="createResult" class="mt-2"></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="card-title mb-0">Задания</h5>
+        <button id="refreshBtn" class="btn btn-sm btn-secondary">Обновить</button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle" id="tasksTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Номер</th>
+              <th>Статус</th>
+              <th>Комментарий</th>
+              <th>Сборок</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
 <script>
-async function createTask(e){
-    e.preventDefault();
-    const data = {
-        task_number: document.getElementById('taskNumber').value,
-        comment: document.getElementById('comment').value,
-        assembly_count: parseInt(document.getElementById('assembly').value)
-    };
-    const res = await fetch('/tasks',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(data)
-    });
-    const txt = await res.text();
-    document.getElementById('result').textContent = txt;
+async function api(method, url, body) {
+    const opts = {method, headers:{'Content-Type':'application/json'}};
+    if(body) opts.body = JSON.stringify(body);
+    const res = await fetch(url, opts);
+    if(res.ok) return res.json();
+    const text = await res.text();
+    throw new Error(text || res.statusText);
 }
-document.getElementById('taskForm').addEventListener('submit',createTask);
+async function loadTasks(){
+    const data = await api('GET','/tasks');
+    renderTasks(data);
+}
+function renderTasks(tasks){
+    const tbody = document.querySelector('#tasksTable tbody');
+    tbody.innerHTML = '';
+    tasks.forEach(t=>{
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${t.id}</td>
+          <td>${t.task_number}</td>
+          <td>
+            <select class="form-select form-select-sm status-select" data-id="${t.id}">
+              <option value="created"${t.status==='created'?' selected':''}>Создано</option>
+              <option value="sent"${t.status==='sent'?' selected':''}>Отправлено</option>
+              <option value="in_progress"${t.status==='in_progress'?' selected':''}>В работе</option>
+              <option value="completed"${t.status==='completed'?' selected':''}>Выполнено</option>
+            </select>
+          </td>
+          <td><input type="text" class="form-control form-control-sm comment-input" data-id="${t.id}" value="${t.comment || ''}"></td>
+          <td><input type="number" class="form-control form-control-sm count-input" data-id="${t.id}" value="${t.assembly_count}" min="1"></td>
+          <td><button class="btn btn-sm btn-success save-btn" data-id="${t.id}">Сохранить</button></td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+document.getElementById('refreshBtn').addEventListener('click', loadTasks);
+document.getElementById('tasksTable').addEventListener('click', async (e)=>{
+    if(e.target.classList.contains('save-btn')){
+        const id = e.target.dataset.id;
+        const comment = document.querySelector(`.comment-input[data-id="${id}"]`).value;
+        const assembly = parseInt(document.querySelector(`.count-input[data-id="${id}"]`).value);
+        const status = document.querySelector(`.status-select[data-id="${id}"]`).value;
+        try{
+            await api('PUT', `/tasks/${id}`, {comment, assembly_count: assembly, status});
+            loadTasks();
+        }catch(err){
+            alert('Ошибка: '+err.message);
+        }
+    }
+});
+document.getElementById('createForm').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const task_number = document.getElementById('taskNumber').value;
+    const comment = document.getElementById('comment').value;
+    const assembly_count = parseInt(document.getElementById('assembly').value);
+    try{
+        await api('POST','/tasks',{task_number, comment, assembly_count});
+        document.getElementById('taskNumber').value='';
+        document.getElementById('comment').value='';
+        document.getElementById('assembly').value='1';
+        document.getElementById('createResult').textContent='Задание создано';
+        loadTasks();
+    }catch(err){
+        document.getElementById('createResult').textContent=err.message;
+    }
+});
+loadTasks();
 </script>
 </body>
 </html>

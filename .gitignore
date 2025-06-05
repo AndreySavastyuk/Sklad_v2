@@ -159,4 +159,7 @@ secrets.properties
 .cxx
 /app/build/
 /Sklad_v2/
+server/data.db
+**/__pycache__/
+*.py[cod]
 
