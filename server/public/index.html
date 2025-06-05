@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Warehouse Task System</title>
+</head>
+<body>
+<h1>Warehouse Task System</h1>
+<form id="taskForm">
+    <label>Номер задания: <input type="text" id="taskNumber" required></label><br>
+    <label>Комментарий: <input type="text" id="comment"></label><br>
+    <label>Количество сборок: <input type="number" id="assembly" value="1"></label><br>
+    <button type="submit">Создать</button>
+</form>
+<pre id="result"></pre>
+<script>
+async function createTask(e){
+    e.preventDefault();
+    const data = {
+        task_number: document.getElementById('taskNumber').value,
+        comment: document.getElementById('comment').value,
+        assembly_count: parseInt(document.getElementById('assembly').value)
+    };
+    const res = await fetch('/tasks',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+    });
+    const txt = await res.text();
+    document.getElementById('result').textContent = txt;
+}
+document.getElementById('taskForm').addEventListener('submit',createTask);
+</script>
+</body>
+</html>
