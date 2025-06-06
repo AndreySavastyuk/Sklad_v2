@@ -2,208 +2,154 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Warehouse Task System</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <title>Складские задания</title>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@fluentui/web-components@2"></script>
+  <style>
+    body{font-family:'Segoe UI',Tahoma,sans-serif;margin:20px;background:#f5f6f7;}
+    .container{max-width:1000px;margin:auto;}
+    table{width:100%;border-collapse:collapse;margin-top:16px;}
+    th,td{border:1px solid #ccc;padding:6px;}
+    th{background:#f3f2f1;text-align:left;}
+    .drop-area{border:2px dashed #888;padding:20px;text-align:center;margin-top:10px;cursor:pointer;}
+    .drop-area.dragover{background:#dfe9f6;}
+  </style>
 </head>
-<body class="p-4">
+<body>
 <div class="container">
-  <h1 class="mb-4">Warehouse Task System</h1>
-  <div class="card mb-4">
-    <div class="card-body">
-      <h5 class="card-title">Создать задание</h5>
-      <form id="createForm" class="row g-2">
-        <div class="col-md-3">
-          <input type="text" class="form-control" id="taskNumber" placeholder="Номер задания" required>
-        </div>
-        <div class="col-md-4">
-          <input type="text" class="form-control" id="comment" placeholder="Комментарий">
-        </div>
-        <div class="col-md-2">
-          <input type="number" class="form-control" id="assembly" value="1" min="1">
-        </div>
-        <div class="col-md-2">
-          <button type="submit" class="btn btn-primary w-100">Создать</button>
-        </div>
-      </form>
-      <div id="createResult" class="mt-2"></div>
-      <div class="mt-3">
-        <div id="dropArea" class="border border-primary rounded p-3 text-center">
-          Перетащите Excel файл сюда
-        </div>
-      </div>
-    </div>
+  <h1>Система заданий</h1>
+  <fluent-button appearance="accent" id="newTaskBtn">Новая задача</fluent-button>
+  <div style="margin-top:20px">
+    <table id="tasksTable">
+      <thead>
+        <tr><th>ID</th><th>Номер</th><th>Статус</th><th>Комментарий</th><th>Сборок</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </div>
-  <div class="card">
-    <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h5 class="card-title mb-0">Задания</h5>
-        <button id="refreshBtn" class="btn btn-sm btn-secondary">Обновить</button>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm align-middle" id="tasksTable">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Номер</th>
-              <th>Статус</th>
-              <th>Комментарий</th>
-              <th>Сборок</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
+  <section id="itemEditor" style="display:none;margin-top:30px;">
+    <h3>Позиции</h3>
+    <div style="margin-bottom:8px;">
+      <fluent-button id="addRowBtn">Добавить позицию</fluent-button>
     </div>
-  </div>
-  <div id="itemsSection" class="mt-4" style="display:none;">
-    <h5 id="orderInfo" class="mb-2"></h5>
-    <div class="table-responsive">
-      <table class="table table-sm" id="itemsTable">
-        <thead></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="modal fade" id="uploadModal" tabindex="-1">
-    <div class="modal-dialog">
-      <form class="modal-content" id="uploadForm">
-        <div class="modal-header">
-          <h5 class="modal-title">Новая заявка</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            <label for="orderNumber" class="form-label">Заказ</label>
-            <input type="text" class="form-control" id="orderNumber" required>
-          </div>
-          <div class="mb-3">
-            <label for="priority" class="form-label">Приоритет</label>
-            <select id="priority" class="form-select">
-              <option value="normal">Обычный</option>
-              <option value="urgent">Срочный</option>
-            </select>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
-          <button type="submit" class="btn btn-primary">OK</button>
-        </div>
-      </form>
-    </div>
-  </div>
+    <table id="itemsTable">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+  </section>
 </div>
+
+<fluent-dialog id="taskDialog">
+  <span slot="title">Новая заявка</span>
+  <div slot="content">
+    <fluent-text-field id="orderInput" placeholder="Заказ" style="width:100%;"></fluent-text-field>
+    <fluent-select id="priorityInput" style="width:100%;margin-top:8px;">
+      <fluent-option value="normal">Обычный</fluent-option>
+      <fluent-option value="urgent">Срочный</fluent-option>
+    </fluent-select>
+    <div class="drop-area" id="dropArea">Перетащите Excel файл сюда</div>
+  </div>
+  <fluent-button slot="footer" appearance="accent" id="dialogOk">OK</fluent-button>
+  <fluent-button slot="footer" appearance="stealth" id="dialogCancel">Отмена</fluent-button>
+</fluent-dialog>
+
 <script>
-async function api(method, url, body) {
-    const opts = {method, headers:{'Content-Type':'application/json'}};
-    if(body) opts.body = JSON.stringify(body);
-    const res = await fetch(url, opts);
-    if(res.ok) return res.json();
-    const text = await res.text();
-    throw new Error(text || res.statusText);
+async function api(method, url, body){
+  const opts = {method, headers:{'Content-Type':'application/json'}};
+  if(body) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  if(res.ok) return res.json();
+  throw new Error(await res.text());
 }
 async function loadTasks(){
-    const data = await api('GET','/tasks');
-    renderTasks(data);
+  const data = await api('GET','/tasks');
+  const tbody = document.querySelector('#tasksTable tbody');
+  tbody.innerHTML='';
+  data.forEach(t=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${t.id}</td>
+      <td>${t.task_number}</td>
+      <td><fluent-select class="status" data-id="${t.id}">
+        <fluent-option value="created" ${t.status==='created'?'selected':''}>Создано</fluent-option>
+        <fluent-option value="sent" ${t.status==='sent'?'selected':''}>Отправлено</fluent-option>
+        <fluent-option value="in_progress" ${t.status==='in_progress'?'selected':''}>В работе</fluent-option>
+        <fluent-option value="completed" ${t.status==='completed'?'selected':''}>Выполнено</fluent-option>
+      </fluent-select></td>
+      <td><fluent-text-field class="comment" data-id="${t.id}" value="${t.comment||''}"></fluent-text-field></td>
+      <td><fluent-text-field type="number" class="count" data-id="${t.id}" value="${t.assembly_count}" style="width:80px;"></fluent-text-field></td>
+      <td><fluent-button appearance="accent" class="save" data-id="${t.id}">Сохранить</fluent-button></td>`;
+    tbody.appendChild(tr);
+  });
 }
-function renderTasks(tasks){
-    const tbody = document.querySelector('#tasksTable tbody');
-    tbody.innerHTML = '';
-    tasks.forEach(t=>{
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${t.id}</td>
-          <td>${t.task_number}</td>
-          <td>
-            <select class="form-select form-select-sm status-select" data-id="${t.id}">
-              <option value="created"${t.status==='created'?' selected':''}>Создано</option>
-              <option value="sent"${t.status==='sent'?' selected':''}>Отправлено</option>
-              <option value="in_progress"${t.status==='in_progress'?' selected':''}>В работе</option>
-              <option value="completed"${t.status==='completed'?' selected':''}>Выполнено</option>
-            </select>
-          </td>
-          <td><input type="text" class="form-control form-control-sm comment-input" data-id="${t.id}" value="${t.comment || ''}"></td>
-          <td><input type="number" class="form-control form-control-sm count-input" data-id="${t.id}" value="${t.assembly_count}" min="1"></td>
-          <td><button class="btn btn-sm btn-success save-btn" data-id="${t.id}">Сохранить</button></td>
-        `;
-        tbody.appendChild(row);
-    });
+
+document.addEventListener('click', async e=>{
+  if(e.target.classList.contains('save')){
+    const id=e.target.dataset.id;
+    const row=e.target.closest('tr');
+    const comment=row.querySelector('.comment').value;
+    const assembly=parseInt(row.querySelector('.count').value);
+    const status=row.querySelector('.status').value;
+    try{await api('PUT',`/tasks/${id}`,{comment,assembly_count:assembly,status});
+      loadTasks();
+    }catch(err){alert(err.message);}
+  }
+});
+
+document.getElementById('newTaskBtn').addEventListener('click',()=>{
+  document.getElementById('orderInput').value='';
+  document.getElementById('priorityInput').value='normal';
+  dropArea.classList.remove('dragover');
+  droppedFile=null;
+  taskDialog.show();
+});
+
+const dropArea=document.getElementById('dropArea');
+const taskDialog=document.getElementById('taskDialog');
+let droppedFile=null;
+['dragover','dragenter'].forEach(ev=>dropArea.addEventListener(ev,e=>{e.preventDefault();dropArea.classList.add('dragover');}));
+['dragleave','drop'].forEach(ev=>dropArea.addEventListener(ev,e=>{e.preventDefault();dropArea.classList.remove('dragover');}));
+dropArea.addEventListener('drop',e=>{droppedFile=e.dataTransfer.files[0];});
+
+document.getElementById('dialogCancel').addEventListener('click',()=>taskDialog.hide());
+
+document.getElementById('dialogOk').addEventListener('click',async()=>{
+  if(!droppedFile) return;
+  const fd=new FormData();
+  fd.append('file',droppedFile);
+  const res=await fetch('/tasks/parse',{method:'POST',body:fd});
+  if(res.ok){
+    const data=await res.json();
+    renderItemsTable(data.headers,data.items);
+    taskDialog.hide();
+  }else{alert('Ошибка при парсинге файла');}
+});
+
+function renderItemsTable(headers,items){
+  const thead=document.querySelector('#itemsTable thead');
+  const tbody=document.querySelector('#itemsTable tbody');
+  thead.innerHTML='<tr>'+headers.map(h=>`<th>${h}</th><th></th>`).join('')+'</tr>';
+  tbody.innerHTML='';
+  items.forEach(item=>addRow(headers,item));
+  document.getElementById('itemEditor').style.display='block';
 }
-document.getElementById('refreshBtn').addEventListener('click', loadTasks);
-document.getElementById('tasksTable').addEventListener('click', async (e)=>{
-    if(e.target.classList.contains('save-btn')){
-        const id = e.target.dataset.id;
-        const comment = document.querySelector(`.comment-input[data-id="${id}"]`).value;
-        const assembly = parseInt(document.querySelector(`.count-input[data-id="${id}"]`).value);
-        const status = document.querySelector(`.status-select[data-id="${id}"]`).value;
-        try{
-            await api('PUT', `/tasks/${id}`, {comment, assembly_count: assembly, status});
-            loadTasks();
-        }catch(err){
-            alert('Ошибка: '+err.message);
-        }
-    }
-});
-document.getElementById('createForm').addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const task_number = document.getElementById('taskNumber').value;
-    const comment = document.getElementById('comment').value;
-    const assembly_count = parseInt(document.getElementById('assembly').value);
-    try{
-        await api('POST','/tasks',{task_number, comment, assembly_count});
-        document.getElementById('taskNumber').value='';
-        document.getElementById('comment').value='';
-        document.getElementById('assembly').value='1';
-        document.getElementById('createResult').textContent='Задание создано';
-        loadTasks();
-    }catch(err){
-        document.getElementById('createResult').textContent=err.message;
-    }
-});
-const dropArea = document.getElementById('dropArea');
-const uploadModalElem = document.getElementById('uploadModal');
-const uploadModal = new bootstrap.Modal(uploadModalElem);
-let droppedFile = null;
-['dragover','dragenter'].forEach(evt => dropArea.addEventListener(evt, e=>{e.preventDefault(); dropArea.classList.add('bg-light');}));
-['dragleave','drop'].forEach(evt => dropArea.addEventListener(evt, e=>{e.preventDefault(); dropArea.classList.remove('bg-light');}));
-dropArea.addEventListener('drop', e=>{
-    const file = e.dataTransfer.files[0];
-    if(file){
-        droppedFile = file;
-        uploadModal.show();
-    }
-});
-document.getElementById('uploadForm').addEventListener('submit', async e=>{
-    e.preventDefault();
-    if(!droppedFile) return;
-    const order = document.getElementById('orderNumber').value;
-    const priority = document.getElementById('priority').value;
-    const fd = new FormData();
-    fd.append('file', droppedFile);
-    const res = await fetch('/tasks/parse', {method:'POST', body: fd});
-    if(res.ok){
-        const data = await res.json();
-        renderItemsTable(order, priority, data.headers, data.items);
-        uploadModal.hide();
-        droppedFile = null;
-    }else{
-        alert('Ошибка при парсинге файла');
-    }
-});
-function renderItemsTable(order, priority, headers, items){
-    document.getElementById('orderInfo').textContent = `Заказ: ${order} / Приоритет: ${priority}`;
-    const thead = document.querySelector('#itemsTable thead');
-    const tbody = document.querySelector('#itemsTable tbody');
-    thead.innerHTML = '<tr>' + headers.map(h=>`<th>${h}</th>`).join('') + '</tr>';
-    tbody.innerHTML = '';
-    items.forEach((it,i)=>{
-        const tr = document.createElement('tr');
-        tr.innerHTML = headers.map(h=>`<td><input type="text" class="form-control form-control-sm" value="${it[h] || ''}"></td>`).join('');
-        tbody.appendChild(tr);
-    });
-    document.getElementById('itemsSection').style.display = 'block';
+function addRow(headers,values={}){
+  const tbody=document.querySelector('#itemsTable tbody');
+  const tr=document.createElement('tr');
+  tr.innerHTML=headers.map(h=>`<td><fluent-text-field value="${values[h]||''}"></fluent-text-field></td>`).join('')+
+    '<td><fluent-button appearance="stealth" class="del">✕</fluent-button></td>';
+  tbody.appendChild(tr);
 }
+
+document.getElementById('addRowBtn').addEventListener('click',()=>{
+  const headers=Array.from(document.querySelectorAll('#itemsTable thead th')).map(th=>th.textContent).filter(t=>t);
+  addRow(headers,{});
+});
+
+document.querySelector('#itemsTable').addEventListener('click',e=>{
+  if(e.target.classList.contains('del')){
+    e.target.closest('tr').remove();
+  }
+});
+
 loadTasks();
 </script>
 </body>
